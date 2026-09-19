@@ -1,0 +1,7 @@
+/target
+*.mp4
+*.wav
+!examples/**
+/.superpowers/
+__pycache__/
+.DS_Store

@@ -1,0 +1,40 @@
+# Bass hits bend a wide tracking band at the bottom of the picture.
+[base]
+preset = "../assets/base.json"
+seed = 42
+
+[audio]
+bands.bass = [20, 160]
+bands.mid = [250, 1800]
+bands.air = [3000, 14000]
+normalize = "peak"
+onset_sensitivity = 1.35
+
+[[modulate]]
+target = "tracking_noise"
+source = "rms"
+threshold = 0.0
+
+[[modulate]]
+target = "tracking_noise_height"
+source = "band:bass"
+range = [0, 110]
+curve = "pow:8"
+release_ms = 110
+
+[[modulate]]
+target = "tracking_noise_wave_intensity"
+source = "band:bass"
+range = [0, 48]
+curve = "pow:8"
+release_ms = 140
+
+[[modulate]]
+target = "tracking_noise_noise_intensity"
+source = "rms"
+range = [0.14, 0.14]
+
+[[modulate]]
+target = "tracking_noise_snow_intensity"
+source = "rms"
+range = [0.08, 0.08]

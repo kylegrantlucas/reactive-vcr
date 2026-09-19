@@ -1,0 +1,31 @@
+# Midrange notes rotate the color phase with a smooth falling tail.
+[base]
+preset = "../assets/base.json"
+seed = 42
+
+[audio]
+bands.bass = [20, 160]
+bands.mid = [250, 1800]
+bands.air = [3000, 14000]
+normalize = "peak"
+onset_sensitivity = 1.35
+
+[[modulate]]
+target = "chroma_phase_error"
+source = "band:mid"
+range = [0, 1]
+curve = "pow:3"
+attack_ms = 20
+release_ms = 100
+
+[[modulate]]
+target = "chroma_phase_noise_intensity"
+source = "band:air"
+range = [0, 0.12]
+curve = "pow:8"
+release_ms = 60
+
+[[modulate]]
+target = "chroma_lowpass_out"
+source = "rms"
+range = [1, 1]

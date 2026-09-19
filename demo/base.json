@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "random_seed": 42,
+  "head_switching": false,
+  "tracking_noise": false,
+  "ringing": false,
+  "composite_noise": false,
+  "luma_noise": false,
+  "chroma_noise": false,
+  "vhs_settings": false,
+  "snow_intensity": 0.0,
+  "chroma_phase_error": 0.0,
+  "chroma_phase_noise_intensity": 0.0,
+  "luma_smear": 0.0
+}

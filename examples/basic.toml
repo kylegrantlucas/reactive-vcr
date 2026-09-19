@@ -1,0 +1,52 @@
+# reactive-vcr example: bass drives tracking noise, hits trigger head switching,
+# overall level pushes snow.
+
+[audio]
+bands.bass = [20, 200]
+bands.high = [3000, 12000]
+normalize = "percentile:98"
+onset_sensitivity = 1.5
+
+[[modulate]]
+target = "tracking_noise"
+source = "rms"
+threshold = 0.0
+
+[[modulate]]
+target = "tracking_noise_wave_intensity"
+source = "band:bass"
+range = [2.0, 30.0]
+curve = "pow:2"
+attack_ms = 10
+release_ms = 300
+
+[[modulate]]
+target = "tracking_noise_height"
+source = "band:bass"
+range = [6, 60]
+release_ms = 200
+
+[[modulate]]
+target = "head_switching"
+source = "onset"
+threshold = 0.5
+release_ms = 120
+
+[[modulate]]
+target = "head_switching_horizontal_shift"
+source = "onset"
+range = [0.0, 40.0]
+release_ms = 120
+
+[[modulate]]
+target = "snow_intensity"
+source = "rms"
+range = [0.0, 2.0]
+curve = "exp"
+release_ms = 400
+
+[[modulate]]
+target = "chroma_noise_intensity"
+source = "band:high"
+range = [0.0, 0.4]
+release_ms = 150
