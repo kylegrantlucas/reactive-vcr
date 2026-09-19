@@ -1,0 +1,44 @@
+{
+  "looks": [
+    {
+      "slug": "01-soft-tape",
+      "title": "Soft tape",
+      "description": "Gentle tape wobble follows the bass while a trace of grain rides the beat."
+    },
+    {
+      "slug": "02-bass-buckle",
+      "title": "Bass buckle",
+      "description": "Bass hits bend a broad tracking band across the bottom of the picture."
+    },
+    {
+      "slug": "03-drum-tears",
+      "title": "Drum tears",
+      "description": "Detected attacks trigger sharp horizontal tears and quick tape wobble."
+    },
+    {
+      "slug": "04-color-bleed",
+      "title": "Color bleed",
+      "description": "Bass pulls color away from luminance while treble adds colored noise."
+    },
+    {
+      "slug": "05-color-drift",
+      "title": "Color drift",
+      "description": "Midrange notes rotate the color phase with a smooth falling tail."
+    },
+    {
+      "slug": "06-snow-bursts",
+      "title": "Snow bursts",
+      "description": "Percussion throws full-frame white noise that clears between hits."
+    },
+    {
+      "slug": "07-color-dropout",
+      "title": "Color dropout",
+      "description": "A worn long-play tape loses color in rhythmic horizontal bands."
+    },
+    {
+      "slug": "08-meltdown",
+      "title": "Meltdown",
+      "description": "Tracking, color separation, tape warping, and snow react together."
+    }
+  ]
+}

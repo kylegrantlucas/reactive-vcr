@@ -1,0 +1,51 @@
+# Gentle tape wobble follows bass; a little grain rides the beat.
+[base]
+preset = "../assets/base.json"
+seed = 42
+
+[audio]
+bands.bass = [20, 160]
+bands.mid = [250, 1800]
+bands.air = [3000, 14000]
+normalize = "peak"
+onset_sensitivity = 1.35
+
+[[modulate]]
+target = "vhs_settings"
+source = "rms"
+threshold = 0.0
+
+[[modulate]]
+target = "vhs_edge_wave_enabled"
+source = "rms"
+threshold = 0.0
+
+[[modulate]]
+target = "vhs_tape_speed"
+source = "rms"
+range = [0, 0]
+
+[[modulate]]
+target = "vhs_edge_wave_frequency"
+source = "rms"
+range = [0.035, 0.035]
+
+[[modulate]]
+target = "vhs_edge_wave"
+source = "band:bass"
+range = [0.15, 2.8]
+curve = "pow:8"
+attack_ms = 15
+release_ms = 170
+
+[[modulate]]
+target = "snow_intensity"
+source = "band:air"
+range = [0, 0.1]
+curve = "pow:5"
+release_ms = 70
+
+[[modulate]]
+target = "chroma_delay_horizontal"
+source = "rms"
+range = [1.4, 1.4]

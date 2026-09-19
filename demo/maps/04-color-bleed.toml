@@ -1,0 +1,44 @@
+# Bass pulls color away from luminance; treble adds colored noise.
+[base]
+preset = "../assets/base.json"
+seed = 42
+
+[audio]
+bands.bass = [20, 160]
+bands.mid = [250, 1800]
+bands.air = [3000, 14000]
+normalize = "peak"
+onset_sensitivity = 1.35
+
+[[modulate]]
+target = "chroma_delay_horizontal"
+source = "band:bass"
+range = [0, 32]
+curve = "pow:6"
+release_ms = 160
+
+[[modulate]]
+target = "chroma_delay_vertical"
+source = "band:bass"
+range = [0, 9]
+curve = "pow:6"
+release_ms = 130
+
+[[modulate]]
+target = "luma_smear"
+source = "band:bass"
+range = [0, 0.6]
+curve = "pow:8"
+release_ms = 120
+
+[[modulate]]
+target = "chroma_noise"
+source = "rms"
+threshold = 0.0
+
+[[modulate]]
+target = "chroma_noise_intensity"
+source = "band:air"
+range = [0, 0.09]
+curve = "pow:5"
+release_ms = 45

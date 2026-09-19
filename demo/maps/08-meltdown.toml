@@ -1,0 +1,88 @@
+# Tracking, color separation, tape warping, and snow react together.
+[base]
+preset = "../assets/base.json"
+seed = 42
+
+[audio]
+bands.bass = [20, 160]
+bands.mid = [250, 1800]
+bands.air = [3000, 14000]
+normalize = "peak"
+onset_sensitivity = 1.35
+
+[[modulate]]
+target = "tracking_noise"
+source = "rms"
+threshold = 0.0
+
+[[modulate]]
+target = "tracking_noise_height"
+source = "band:bass"
+range = [0, 120]
+curve = "pow:5"
+release_ms = 160
+
+[[modulate]]
+target = "tracking_noise_wave_intensity"
+source = "band:bass"
+range = [0, 50]
+curve = "pow:6"
+release_ms = 180
+
+[[modulate]]
+target = "tracking_noise_snow_intensity"
+source = "rms"
+range = [0.15, 0.15]
+
+[[modulate]]
+target = "vhs_settings"
+source = "rms"
+threshold = 0.0
+
+[[modulate]]
+target = "vhs_edge_wave_enabled"
+source = "rms"
+threshold = 0.0
+
+[[modulate]]
+target = "vhs_edge_wave"
+source = "band:bass"
+range = [0, 16]
+curve = "pow:6"
+release_ms = 150
+
+[[modulate]]
+target = "chroma_delay_horizontal"
+source = "band:mid"
+range = [-12, 30]
+curve = "pow:6"
+release_ms = 95
+
+[[modulate]]
+target = "chroma_phase_error"
+source = "band:mid"
+range = [0, 0.65]
+curve = "pow:4"
+release_ms = 90
+
+[[modulate]]
+target = "snow_intensity"
+source = "onset"
+range = [0, 3]
+release_ms = 55
+
+[[modulate]]
+target = "head_switching"
+source = "onset"
+threshold = 0.35
+release_ms = 130
+
+[[modulate]]
+target = "head_switching_height"
+source = "rms"
+range = [24, 24]
+
+[[modulate]]
+target = "head_switching_horizontal_shift"
+source = "rms"
+range = [100, 100]

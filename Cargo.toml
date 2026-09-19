@@ -1,0 +1,27 @@
+[package]
+name = "reactive-vcr"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Render audio-reactive VHS and NTSC effects from declarative mappings"
+repository = "https://github.com/kylegrantlucas/reactive-vcr"
+homepage = "https://kylegrantlucas.github.io/reactive-vcr/"
+readme = "README.md"
+keywords = ["audio-reactive", "ffmpeg", "ntsc", "video", "vhs"]
+categories = ["command-line-utilities", "multimedia::video"]
+publish = false
+
+[dependencies]
+anyhow = "1.0.104"
+clap = { version = "4.6.7", features = ["derive"] }
+crossbeam-channel = "0.5.17"
+indicatif = "0.18.6"
+ntsc-rs = { git = "https://github.com/ntsc-rs/ntsc-rs", rev = "88f2df9a27863097eaffd8d1fe0080a174dfd4a5", version = "0.1.2", features = ["rayon"] }
+realfft = "3.5.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+strsim = "0.11.1"
+toml = "1.1.6"
+
+[dev-dependencies]
+tempfile = "3.27.0"

@@ -1,0 +1,40 @@
+# Percussion throws full-frame white noise; it quickly clears between hits.
+[base]
+preset = "../assets/base.json"
+seed = 42
+
+[audio]
+bands.bass = [20, 160]
+bands.mid = [250, 1800]
+bands.air = [3000, 14000]
+normalize = "peak"
+onset_sensitivity = 1.35
+
+[[modulate]]
+target = "snow_intensity"
+source = "onset"
+range = [0, 6]
+release_ms = 70
+
+[[modulate]]
+target = "snow_intensity"
+source = "band:air"
+range = [0, 2.5]
+curve = "pow:10"
+release_ms = 40
+
+[[modulate]]
+target = "luma_noise"
+source = "rms"
+threshold = 0.0
+
+[[modulate]]
+target = "luma_noise_intensity"
+source = "onset"
+range = [0, 0.13]
+release_ms = 65
+
+[[modulate]]
+target = "snow_anisotropy"
+source = "rms"
+range = [0.75, 0.75]
