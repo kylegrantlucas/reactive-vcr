@@ -282,8 +282,9 @@ def render_look(binary, work_dir, site_dir, look):
             "--audio-mode",
             "driving",
             "--quiet",
-            "--ffmpeg-out-args",
-            "-movflags +faststart",
+            # Quantizer 23 keeps the eleven renders within the site's size limit.
+            "--quantizer",
+            "23",
         ]
     )
     print(f"rendered {look.title}", flush=True)
