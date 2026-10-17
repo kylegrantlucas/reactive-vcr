@@ -13,7 +13,7 @@ publish = false
 
 [dependencies]
 anyhow = "1.0.104"
-bender = { git = "https://github.com/kylegrantlucas/bender-rs", rev = "83c2312867fa3c9e06adb1f161ecfaedd625d5cf", version = "0.1.0" }
+bender = { git = "https://github.com/kylegrantlucas/bender-rs", rev = "e5b754c2bbea7ab924c078f857241c7a23c17ea1", version = "0.2.0" }
 clap = { version = "4.6.7", features = ["derive"] }
 crossbeam-channel = "0.5.17"
 indicatif = "0.18.6"

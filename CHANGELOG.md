@@ -4,6 +4,16 @@ All notable changes to reactive-vcr appear here. This project follows [Semantic 
 
 ## [Unreleased]
 
+### Added
+
+- bender-rs 0.2.0 circuits: sensor, retina, isp, tape, composite, dct, mosh, counter, colorize, scan, and feedback, plus the new settings on existing stages. All 157 bender-rs settings are modulation targets.
+- `[bender.set] order` reorders the bender-rs stages, from an array of stage names or a comma-separated string.
+- bender-rs version 2 presets, including their stage `order`.
+
+### Changed
+
+- Upgraded bender-rs to 0.2.0. Its sync, clock, data, hold, rail, osc, and burst stages are retuned, so existing bender mappings render differently.
+
 ## [0.2.0] - 2026-10-17
 
 ### Added

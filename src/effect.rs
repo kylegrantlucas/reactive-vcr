@@ -158,14 +158,11 @@ impl FrameProcessor {
     }
 }
 
-/// True when any bender group is switched on. Each group's first setting is `<id>.enabled`.
+/// True when any bender stage is switched into the chain.
 fn bends_enabled(effect: &bender::BendEffect) -> bool {
-    bender::setting_groups().iter().any(|g| {
-        matches!(
-            (g.settings[0].get)(effect),
-            bender::SettingValue::Bool(true)
-        )
-    })
+    bender::StageId::ALL
+        .into_iter()
+        .any(|stage| effect.stage_enabled(stage))
 }
 
 #[cfg(test)]

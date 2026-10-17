@@ -101,7 +101,9 @@ seed = 3                         # optional bend seed; overrides the preset
 order = "before"                 # run bends "before" or "after" ntsc-rs
 
 [bender.set]
+order = ["hold", "sync"]         # bender-rs stage order; listed stages run first
 "sync.enabled" = true            # any bender-rs setting id; enum values by name
+"hold.enabled" = true
 "invert.mode" = "solarize"
 
 [audio]
@@ -131,6 +133,8 @@ For each mapping, the renderer smooths the source, optionally inverts it, applie
 RMS and frequency bands use a 60 dB window below their peak or selected percentile. All bands share one reference, which preserves the difference between quiet and loud bands. Onsets are one-frame triggers; `release_ms` turns them into useful decays. Group children such as `tracking_noise_*` take effect only while their group toggle is enabled.
 
 bender-rs targets are named `bender.<group>.<setting>`, such as `bender.sync.v_roll`; `reactive-vcr params` lists all of them. Each `bender.<group>.*` setting takes effect only while `bender.<group>.enabled` is on, either from the preset, `[bender.set]`, or a modulation. `[bender.set]` values apply after the preset and are checked strictly: out-of-range values are errors, not clamped. Quoted (`"sync.enabled" = true`), dotted (`sync.enabled = true`), and nested (`[bender.set.sync]`) keys are equivalent.
+
+`[bender] order` places the whole bender-rs chain relative to ntsc-rs. `[bender.set] order` reorders the bender-rs stages themselves, overriding the preset's `order`: the listed stages run first and the rest follow in bender-rs's default order (`sensor, retina, isp, tape, sync, clock, data, dct, mosh, hold, counter, address_a, address_b, colorize, invert, rail, osc, burst, bleed, composite, scan, feedback`). It takes an array of stage names or a comma-separated string, as in `bender --set order=hold,sync`. Stage order is fixed for the whole render and cannot be modulated.
 
 Preset paths are relative to the mapping file. Export a preset from the ntsc-rs GUI, place it beside the mapping or in a subdirectory, and reference it through `[base].preset`; bender-rs presets go in `[bender].preset`.
 

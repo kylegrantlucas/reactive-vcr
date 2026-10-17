@@ -176,7 +176,7 @@ range = [100, 0]
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("b.json"),
-            r#"{"version":1,"seed":9,"sync":{"enabled":true,"v_roll":0.2}}"#,
+            r#"{"version":2,"seed":9,"order":["burst"],"sync":{"enabled":true,"v_roll":0.2}}"#,
         )
         .unwrap();
         std::fs::write(
@@ -188,6 +188,7 @@ seed = 4
 order = "after"
 
 [bender.set]
+order = ["hold", "sync"]
 "burst.enabled" = true
 burst.phase = 45
 
@@ -203,6 +204,15 @@ enabled = true
         assert_eq!(b.burst.settings.phase, 45.0);
         assert!(b.bleed.enabled);
         assert_eq!(b.seed, 4);
+        assert_eq!(
+            b.order.stages()[..3],
+            [
+                bender::StageId::Hold,
+                bender::StageId::Sync,
+                bender::StageId::Sensor
+            ],
+            "set order replaces the preset order; unlisted stages keep default order"
+        );
         assert_eq!(m.chain.bend_order, BendOrder::After);
         assert!(m.chain.ntsc);
         assert!(
@@ -222,6 +232,7 @@ enabled = true
 "invert.mode" = "sideways"
 "rail.sag" = [1]
 seed = 1
+order = ["sync", "warp"]
 "#,
         )
         .unwrap_err()
@@ -230,9 +241,35 @@ seed = 1
             err.contains("\"sync.v_rol\"; did you mean sync.v_roll"),
             "{err}"
         );
-        for expected in ["out of range", "sideways", "array", "[bender] seed"] {
+        for expected in [
+            "out of range",
+            "sideways",
+            "array",
+            "[bender] seed",
+            "stage \"warp\"; stages: sensor, retina",
+        ] {
             assert!(err.contains(expected), "missing {expected:?} from {err}");
         }
+    }
+
+    #[test]
+    fn stage_order_accepts_comma_list_and_rejects_repeats() {
+        let m = compile_str("[bender.set]\norder = \"feedback, dct\"\n").unwrap();
+        assert_eq!(
+            m.base.bender.order.stages()[..2],
+            [bender::StageId::Feedback, bender::StageId::Dct]
+        );
+        let err = compile_str("[bender.set]\norder = \"dct,dct\"\n")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("repeated stage \"dct\""), "{err}");
+        let err = compile_str("[bender.set]\norder = 3\n")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("expected an array of stage names, got integer"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -470,6 +507,34 @@ fn flatten_table(prefix: &str, table: &toml::Table, out: &mut Vec<(String, toml:
     }
 }
 
+/// Applies `[bender.set] order`: stage names as an array or a comma-separated string.
+/// Listed stages run first; the rest follow in bender-rs's default order.
+fn set_stage_order(effect: &mut bender::BendEffect, value: &toml::Value, errors: &mut Vec<String>) {
+    let raw = match value {
+        toml::Value::String(s) => Some(s.clone()),
+        toml::Value::Array(items) => items
+            .iter()
+            .map(toml::Value::as_str)
+            .collect::<Option<Vec<_>>>()
+            .map(|names| names.join(",")),
+        _ => None,
+    };
+    let Some(raw) = raw else {
+        errors.push(format!(
+            "[bender.set] order: expected an array of stage names, got {}",
+            value.type_str()
+        ));
+        return;
+    };
+    match bender::ChainOrder::parse(&raw) {
+        Ok(order) => effect.order = order,
+        Err(name) => errors.push(format!(
+            "[bender.set] order: unknown or repeated stage {name:?}; stages: {}",
+            bender::StageId::ALL.map(bender::StageId::name).join(", ")
+        )),
+    }
+}
+
 pub fn load(path: &Path, catalog: &ParamCatalog) -> Result<CompiledMapping> {
     let text = std::fs::read_to_string(path)
         .with_context(|| format!("reading mapping {}", path.display()))?;
@@ -533,6 +598,10 @@ pub fn compile(
     for (id, value) in bender_settings {
         if id == "seed" {
             errors.push("[bender.set] seed: use [bender] seed".to_string());
+            continue;
+        }
+        if id == "order" {
+            set_stage_order(&mut base.bender, &value, &mut errors);
             continue;
         }
         let raw = match value {

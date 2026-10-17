@@ -51,11 +51,20 @@ mod tests {
             ParamKind::Enum { options } => assert_eq!(options.len(), 4),
             k => panic!("wrong kind {k:?}"),
         }
+        assert!(c.get("bender.feedback.enabled").unwrap().is_group);
+        let descriptors: Vec<_> = bender::setting_groups()
+            .iter()
+            .flat_map(|g| g.settings.iter())
+            .collect();
+        for d in &descriptors {
+            let name = format!("{BENDER_PREFIX}{}", d.id);
+            assert!(c.get(&name).is_some(), "catalog is missing {name}");
+        }
         let count = c
             .iter()
             .filter(|p| p.name.starts_with(BENDER_PREFIX))
             .count();
-        assert_eq!(count, 57);
+        assert_eq!(count, descriptors.len());
     }
 
     #[test]
