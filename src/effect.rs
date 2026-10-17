@@ -134,12 +134,10 @@ impl FrameProcessor {
         let rgba_len = w * h * 4;
         self.rgba_in.resize(rgba_len, 0);
         self.rgba_out.resize(rgba_len, 0);
-        for (rgb, rgba) in input_rgb
-            .chunks_exact(3)
-            .zip(self.rgba_in.chunks_exact_mut(4))
-        {
-            rgba[..3].copy_from_slice(rgb);
-            rgba[3] = 255;
+        let (rgb_in, _) = input_rgb.as_chunks::<3>();
+        let (rgba_in, _) = self.rgba_in.as_chunks_mut::<4>();
+        for (&[r, g, b], rgba) in rgb_in.iter().zip(rgba_in) {
+            *rgba = [r, g, b, 255];
         }
         effect.apply_rgba8(
             w,
@@ -152,12 +150,10 @@ impl FrameProcessor {
             frame_num as u64,
             &mut self.bend_state,
         );
-        for (rgba, rgb) in self
-            .rgba_out
-            .chunks_exact(4)
-            .zip(output_rgb.chunks_exact_mut(3))
-        {
-            rgb.copy_from_slice(&rgba[..3]);
+        let (rgba_out, _) = self.rgba_out.as_chunks::<4>();
+        let (rgb_out, _) = output_rgb.as_chunks_mut::<3>();
+        for (&[r, g, b, _], rgb) in rgba_out.iter().zip(rgb_out) {
+            *rgb = [r, g, b];
         }
     }
 }
