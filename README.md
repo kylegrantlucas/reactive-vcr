@@ -28,8 +28,8 @@ sudo apt install ffmpeg
 
 Download the latest archive from [GitHub Releases](https://github.com/kylegrantlucas/reactive-vcr/releases/latest):
 
-- `reactive-vcr-v0.2.0-aarch64-apple-darwin.tar.gz` for Apple Silicon macOS.
-- `reactive-vcr-v0.2.0-x86_64-unknown-linux-gnu.tar.gz` for x86_64 Linux with glibc 2.35 or newer.
+- `reactive-vcr-v0.3.0-aarch64-apple-darwin.tar.gz` for Apple Silicon macOS.
+- `reactive-vcr-v0.3.0-x86_64-unknown-linux-gnu.tar.gz` for x86_64 Linux with glibc 2.35 or newer.
 
 Extract the archive and move `reactive-vcr` to a directory on `PATH`. The macOS binary is unsigned. If Gatekeeper blocks it after you verify `SHA256SUMS`, remove the downloaded-file quarantine attribute:
 

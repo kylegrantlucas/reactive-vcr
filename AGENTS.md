@@ -13,6 +13,6 @@ Rust CLI that analyzes audio and drives VHS-style video effects from TOML mappin
 - `just showcase` / `just showcase-check` / `just showcase-serve` build, verify, serve `target/demo-site/`
 
 ## Invariants
-- Keep CLI and mapping format backward compatible within 0.2.x.
+- Keep CLI and mapping format backward compatible within 0.3.x.
 - Add a failing test before behavior changes; skipped media tests are not a pass.
 - Everything under `target/` is regenerable; showcase media is synthesized.

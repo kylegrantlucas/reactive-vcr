@@ -4,6 +4,8 @@ All notable changes to reactive-vcr appear here. This project follows [Semantic 
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-17
+
 ### Added
 
 - bender-rs 0.2.0 circuits: sensor, retina, isp, tape, composite, dct, mosh, counter, colorize, scan, and feedback, plus the new settings on existing stages. All 157 bender-rs settings are modulation targets.
@@ -37,6 +39,7 @@ All notable changes to reactive-vcr appear here. This project follows [Semantic 
 - Public showcase with eight reproducible treatments.
 - Apple Silicon macOS and x86_64 Linux release archives.
 
-[Unreleased]: https://github.com/kylegrantlucas/reactive-vcr/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/kylegrantlucas/reactive-vcr/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/kylegrantlucas/reactive-vcr/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/kylegrantlucas/reactive-vcr/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/kylegrantlucas/reactive-vcr/releases/tag/v0.1.0
