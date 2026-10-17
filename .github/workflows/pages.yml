@@ -29,14 +29,20 @@ jobs:
         with:
           toolchain: stable
 
+      # The demo generator uses ffmpeg to synthesize clips, reels and posters;
+      # the reactive-vcr CLI it calls renders through GStreamer.
       - name: Install media dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes ffmpeg fonts-dejavu-core
+          sudo apt-get install --yes \
+            ffmpeg fonts-dejavu-core \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav
           ffmpeg -hide_banner -encoders | grep --quiet libx264
 
       - name: Build reactive-vcr
-        run: cargo build --release --locked
+        run: cargo build --release --locked -p reactive-vcr-cli
 
       - name: Build and verify demo
         run: >-
