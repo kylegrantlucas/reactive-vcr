@@ -15,12 +15,12 @@ SPEC.loader.exec_module(generate)
 
 
 class ShowcaseSourceTests(unittest.TestCase):
-    def test_repository_showcase_declares_eight_valid_looks(self):
+    def test_repository_showcase_declares_eleven_valid_looks(self):
         looks = generate.load_showcase(DEMO_DIR)
 
-        self.assertEqual(8, len(looks))
+        self.assertEqual(11, len(looks))
         self.assertEqual("01-soft-tape", looks[0].slug)
-        self.assertEqual("08-meltdown", looks[-1].slug)
+        self.assertEqual("11-burst-drift", looks[-1].slug)
 
     def test_load_showcase_rejects_duplicate_slugs(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -119,9 +119,9 @@ class SiteVerificationTests(unittest.TestCase):
                 "name = sys.argv[-1]\n"
                 "sampler = '10-sampler-reel' in name\n"
                 "comparison = '09-comparison-grid' in name\n"
-                "seconds = 32 if sampler else 8\n"
+                "seconds = 44 if sampler else 8\n"
                 "print(json.dumps({'streams': ["
-                "{'codec_type': 'video', 'width': 960, 'height': 624 if comparison else 540, 'nb_frames': str(seconds * 30)},"
+                "{'codec_type': 'video', 'width': 960, 'height': 832 if comparison else 540, 'nb_frames': str(seconds * 30)},"
                 "{'codec_type': 'audio'}], 'format': {'duration': str(seconds)}}))\n",
                 encoding="utf-8",
             )
@@ -144,7 +144,7 @@ class SiteVerificationTests(unittest.TestCase):
             )
 
             self.assertEqual(0, result.returncode, result.stderr)
-            self.assertIn("verified 11 videos", result.stdout)
+            self.assertIn("verified 14 videos", result.stdout)
 
     def test_assemble_site_copies_public_sources_and_renders_cards(self):
         with tempfile.TemporaryDirectory() as tmp:

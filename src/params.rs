@@ -30,6 +30,56 @@ mod tests {
     }
 
     #[test]
+    fn catalog_includes_prefixed_bender_settings() {
+        let c = ParamCatalog::new();
+        assert!(matches!(
+            c.get("bender.sync.v_roll").unwrap().kind,
+            ParamKind::Float {
+                min: -1.0,
+                max: 1.0,
+                ..
+            }
+        ));
+        let enabled = c.get("bender.sync.enabled").unwrap();
+        assert!(matches!(enabled.kind, ParamKind::Bool));
+        assert!(enabled.is_group);
+        assert!(matches!(
+            c.get("bender.clock.sample_hold").unwrap().kind,
+            ParamKind::Int { min: 1, max: 64 }
+        ));
+        match &c.get("bender.invert.mode").unwrap().kind {
+            ParamKind::Enum { options } => assert_eq!(options.len(), 4),
+            k => panic!("wrong kind {k:?}"),
+        }
+        let count = c
+            .iter()
+            .filter(|p| p.name.starts_with(BENDER_PREFIX))
+            .count();
+        assert_eq!(count, 57);
+    }
+
+    #[test]
+    fn bender_set_and_get_roundtrip_with_clamping() {
+        let c = ParamCatalog::new();
+        let mut e = EffectSettings::default();
+        let v_roll = c.get("bender.sync.v_roll").unwrap();
+        set_param(&mut e, v_roll, 5.0).unwrap();
+        assert_eq!(get_param(&e, v_roll), 1.0);
+        assert_eq!(e.bender.sync.settings.v_roll, 1.0);
+        let hold = c.get("bender.clock.sample_hold").unwrap();
+        set_param(&mut e, hold, 7.6).unwrap();
+        assert_eq!(get_param(&e, hold), 8.0);
+        assert_eq!(e.bender.clock.settings.sample_hold, 8);
+        let enabled = c.get("bender.sync.enabled").unwrap();
+        set_param(&mut e, enabled, 0.7).unwrap();
+        assert_eq!(get_param(&e, enabled), 1.0);
+        assert!(e.bender.sync.enabled);
+        let mode = c.get("bender.invert.mode").unwrap();
+        set_param(&mut e, mode, 9.0).unwrap();
+        assert_eq!(get_param(&e, mode), 3.0);
+    }
+
+    #[test]
     fn suggest_finds_near_names() {
         let c = ParamCatalog::new();
         let s = c.suggest("snow_intensty", 3);
@@ -39,7 +89,7 @@ mod tests {
     #[test]
     fn set_and_get_roundtrip_with_clamping() {
         let c = ParamCatalog::new();
-        let mut e = NtscEffect::default();
+        let mut e = EffectSettings::default();
         set_param(&mut e, c.get("snow_intensity").unwrap(), 250.0).unwrap();
         assert_eq!(get_param(&e, c.get("snow_intensity").unwrap()), 100.0);
         set_param(&mut e, c.get("head_switching_height").unwrap(), 7.6).unwrap();
@@ -57,11 +107,14 @@ mod tests {
     #[test]
     fn preset_json_roundtrip() {
         let c = ParamCatalog::new();
-        let mut e = NtscEffect::default();
+        let mut e = EffectSettings::default();
         set_param(&mut e, c.get("snow_intensity").unwrap(), 3.5).unwrap();
-        let json = c.preset_to_json(&e).unwrap();
+        let json = c.preset_to_json(&e.ntsc).unwrap();
         assert!(json.contains("\"snow_intensity\""));
-        let back = c.preset_from_json(&json).unwrap();
+        let back = EffectSettings {
+            ntsc: c.preset_from_json(&json).unwrap(),
+            ..EffectSettings::default()
+        };
         assert_eq!(get_param(&back, c.get("snow_intensity").unwrap()), 3.5);
         assert!(c.preset_from_json("{not json").is_err());
     }
@@ -69,7 +122,7 @@ mod tests {
     #[test]
     fn set_param_rejects_nonfinite_values() {
         let c = ParamCatalog::new();
-        let mut e = NtscEffect::default();
+        let mut e = EffectSettings::default();
         assert!(set_param(&mut e, c.get("snow_intensity").unwrap(), f64::NAN).is_err());
         assert!(set_param(&mut e, c.get("snow_intensity").unwrap(), f64::INFINITY).is_err());
         assert!(
@@ -104,12 +157,17 @@ mod tests {
         );
     }
 }
+use crate::effect::EffectSettings;
 use anyhow::{Context as _, Result, anyhow};
 use ntsc_rs::NtscEffect;
 use ntsc_rs::settings::{
     EnumValue, SettingDescriptor, SettingID, SettingKind, Settings, SettingsList,
 };
 use std::collections::HashMap;
+use std::sync::LazyLock;
+
+/// Catalog name prefix for bender-rs settings, e.g. `bender.sync.v_roll`.
+pub const BENDER_PREFIX: &str = "bender.";
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParamKind {
@@ -173,7 +231,70 @@ pub struct Param {
     pub label: &'static str,
     pub is_group: bool,
     pub kind: ParamKind,
-    pub id: SettingID<NtscEffect>,
+    pub target: ParamTarget,
+}
+
+/// The engine setting a catalog entry reads and writes.
+#[derive(Debug, Clone)]
+pub enum ParamTarget {
+    Ntsc(SettingID<NtscEffect>),
+    Bender {
+        get: fn(&bender::BendEffect) -> bender::SettingValue,
+        set: fn(&mut bender::BendEffect, bender::SettingValue),
+    },
+}
+
+struct BenderEntry {
+    name: String,
+    label: String,
+    is_group: bool,
+    kind: ParamKind,
+    get: fn(&bender::BendEffect) -> bender::SettingValue,
+    set: fn(&mut bender::BendEffect, bender::SettingValue),
+}
+
+static BENDER_ENTRIES: LazyLock<Vec<BenderEntry>> = LazyLock::new(|| {
+    let mut entries = Vec::new();
+    for group in bender::setting_groups() {
+        for (i, desc) in group.settings.iter().enumerate() {
+            entries.push(BenderEntry {
+                name: format!("{BENDER_PREFIX}{}", desc.id),
+                label: if i == 0 {
+                    group.label.to_string()
+                } else {
+                    format!("{}: {}", group.label, desc.label)
+                },
+                is_group: i == 0,
+                kind: bender_kind_of(&desc.kind),
+                get: desc.get,
+                set: desc.set,
+            });
+        }
+    }
+    entries
+});
+
+fn bender_kind_of(kind: &bender::SettingKind) -> ParamKind {
+    match *kind {
+        bender::SettingKind::Float {
+            min,
+            max,
+            logarithmic,
+        } => ParamKind::Float {
+            min,
+            max,
+            logarithmic,
+        },
+        bender::SettingKind::Int { min, max } => ParamKind::Int { min, max },
+        bender::SettingKind::Bool => ParamKind::Bool,
+        bender::SettingKind::Enum { options } => ParamKind::Enum {
+            options: options
+                .iter()
+                .enumerate()
+                .map(|(i, (_, label))| (i as u32, label.to_string()))
+                .collect(),
+        },
+    }
 }
 
 fn kind_of(desc: &SettingDescriptor<NtscEffect>) -> ParamKind {
@@ -226,7 +347,20 @@ impl ParamCatalog {
                 label: desc.label,
                 is_group: matches!(desc.kind, SettingKind::Group { .. }),
                 kind: kind_of(desc),
-                id: desc.id.clone(),
+                target: ParamTarget::Ntsc(desc.id.clone()),
+            });
+        }
+        for entry in LazyLock::force(&BENDER_ENTRIES) {
+            by_name.insert(entry.name.as_str(), params.len());
+            params.push(Param {
+                name: entry.name.as_str(),
+                label: entry.label.as_str(),
+                is_group: entry.is_group,
+                kind: entry.kind.clone(),
+                target: ParamTarget::Bender {
+                    get: entry.get,
+                    set: entry.set,
+                },
             });
         }
         Self {
@@ -278,25 +412,47 @@ impl ParamCatalog {
     }
 }
 
-pub fn set_param(effect: &mut NtscEffect, param: &Param, value: f64) -> Result<()> {
+pub fn set_param(effects: &mut EffectSettings, param: &Param, value: f64) -> Result<()> {
     if !value.is_finite() {
         return Err(anyhow!("{}: value must be finite", param.name));
     }
+    let id = match &param.target {
+        ParamTarget::Ntsc(id) => id,
+        ParamTarget::Bender { set, .. } => {
+            let v = match &param.kind {
+                ParamKind::Float { min, max, .. } => {
+                    bender::SettingValue::Float((value as f32).clamp(*min, *max))
+                }
+                ParamKind::Int { min, max } => {
+                    bender::SettingValue::Int(value.round().clamp(*min as f64, *max as f64) as i32)
+                }
+                ParamKind::Bool => bender::SettingValue::Bool(value >= 0.5),
+                ParamKind::Enum { options } => bender::SettingValue::Enum(
+                    value
+                        .round()
+                        .clamp(0.0, options.len().saturating_sub(1) as f64)
+                        as u32,
+                ),
+            };
+            set(&mut effects.bender, v);
+            return Ok(());
+        }
+    };
+    let effect = &mut effects.ntsc;
     let result = match &param.kind {
         ParamKind::Float { min, max, .. } => {
-            effect.set_field::<f32>(&param.id, (value as f32).clamp(*min, *max))
+            effect.set_field::<f32>(id, (value as f32).clamp(*min, *max))
         }
-        ParamKind::Int { min, max } => effect.set_field::<i32>(
-            &param.id,
-            value.round().clamp(*min as f64, *max as f64) as i32,
-        ),
-        ParamKind::Bool => effect.set_field::<bool>(&param.id, value >= 0.5),
+        ParamKind::Int { min, max } => {
+            effect.set_field::<i32>(id, value.round().clamp(*min as f64, *max as f64) as i32)
+        }
+        ParamKind::Bool => effect.set_field::<bool>(id, value >= 0.5),
         ParamKind::Enum { options } => {
             let index = value
                 .round()
                 .clamp(0.0, options.len().saturating_sub(1) as f64)
                 as usize;
-            effect.set_field::<EnumValue>(&param.id, EnumValue(options[index].0))
+            effect.set_field::<EnumValue>(id, EnumValue(options[index].0))
         }
     };
     result
@@ -304,14 +460,26 @@ pub fn set_param(effect: &mut NtscEffect, param: &Param, value: f64) -> Result<(
         .context("set_param")
 }
 
-pub fn get_param(effect: &NtscEffect, param: &Param) -> f64 {
+pub fn get_param(effects: &EffectSettings, param: &Param) -> f64 {
+    let id = match &param.target {
+        ParamTarget::Ntsc(id) => id,
+        ParamTarget::Bender { get, .. } => {
+            return match get(&effects.bender) {
+                bender::SettingValue::Float(v) => v as f64,
+                bender::SettingValue::Int(v) => v as f64,
+                bender::SettingValue::Bool(b) => f64::from(b),
+                bender::SettingValue::Enum(i) => i as f64,
+            };
+        }
+    };
+    let effect = &effects.ntsc;
     match &param.kind {
-        ParamKind::Float { .. } => effect.get_field::<f32>(&param.id).unwrap_or(0.0) as f64,
-        ParamKind::Int { .. } => effect.get_field::<i32>(&param.id).unwrap_or(0) as f64,
-        ParamKind::Bool => f64::from(effect.get_field::<bool>(&param.id).unwrap_or(false)),
+        ParamKind::Float { .. } => effect.get_field::<f32>(id).unwrap_or(0.0) as f64,
+        ParamKind::Int { .. } => effect.get_field::<i32>(id).unwrap_or(0) as f64,
+        ParamKind::Bool => f64::from(effect.get_field::<bool>(id).unwrap_or(false)),
         ParamKind::Enum { options } => {
             let value = effect
-                .get_field::<EnumValue>(&param.id)
+                .get_field::<EnumValue>(id)
                 .map(|value| value.0)
                 .unwrap_or(0);
             options

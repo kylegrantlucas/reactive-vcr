@@ -86,9 +86,7 @@ pub fn analyze(o: &AnalyzeOptions) -> Result<()> {
 
     let catalog = ParamCatalog::new();
     let map = mapping::load(&o.map, &catalog)?;
-    if let Some(preset) = &map.preset_path {
-        validate_output_is_distinct(&o.output, &[("preset", preset)])?;
-    }
+    validate_output_is_distinct(&o.output, &map.preset_inputs())?;
     let samples = decode_mono_f32(&o.audio)?;
     let start_s = o.start_s.unwrap_or(0.0);
     let frames = frames_for(samples.len(), SAMPLE_RATE, o.fps, start_s, o.duration_s);

@@ -25,7 +25,11 @@ DURATION = 8
 FPS = 30
 WIDTH = 960
 HEIGHT = 540
-SITE_LIMIT_BYTES = 125 * 1024 * 1024
+SITE_LIMIT_BYTES = 160 * 1024 * 1024
+COMPARISON_COLUMNS = 3
+TILE_WIDTH = 320
+TILE_HEIGHT = 208
+SAMPLER_SEGMENT_SECONDS = 4
 
 
 @dataclass(frozen=True)
@@ -33,6 +37,10 @@ class Look:
     slug: str
     title: str
     description: str
+
+
+def comparison_rows(looks):
+    return math.ceil((len(looks) + 1) / COMPARISON_COLUMNS)
 
 
 def run(args):
@@ -308,13 +316,17 @@ def create_comparison(site_dir, looks, font):
         inputs.extend(["-i", site_dir / "media" / f"{slug}.mp4"])
         safe_title = title.upper().replace("'", "\\'")
         filters.append(
-            f"[{index}:v]scale=320:180,pad=320:208:0:28:black,"
+            f"[{index}:v]scale={TILE_WIDTH}:180,pad={TILE_WIDTH}:{TILE_HEIGHT}:0:28:black,"
             f"drawtext=fontfile='{escaped_font}':text='{safe_title}':x=10:y=6:fontsize=15:fontcolor=white[v{index}]"
         )
-    layout = "|".join(f"{index % 3 * 320}_{index // 3 * 208}" for index in range(9))
+    count = len(entries)
+    layout = "|".join(
+        f"{index % COMPARISON_COLUMNS * TILE_WIDTH}_{index // COMPARISON_COLUMNS * TILE_HEIGHT}"
+        for index in range(count)
+    )
     filters.append(
-        "".join(f"[v{index}]" for index in range(9))
-        + f"xstack=inputs=9:layout={layout}[grid]"
+        "".join(f"[v{index}]" for index in range(count))
+        + f"xstack=inputs={count}:layout={layout}:fill=black[grid]"
     )
     ffmpeg(
         *inputs,
@@ -353,7 +365,7 @@ def create_sampler(work_dir, site_dir, looks, font):
             "-i",
             site_dir / "media" / f"{look.slug}.mp4",
             "-t",
-            "4",
+            str(SAMPLER_SEGMENT_SECONDS),
             "-vf",
             "drawbox=x=0:y=0:w=iw:h=38:color=black@0.82:t=fill,"
             f"drawtext=fontfile='{escaped_font}':text='{index + 1:02d} / {safe_title}':x=18:y=9:fontsize=20:fontcolor=white",
@@ -435,14 +447,17 @@ def verify_media(site_dir, looks):
         video = next(stream for stream in data["streams"] if stream["codec_type"] == "video")
         if not any(stream["codec_type"] == "audio" for stream in data["streams"]):
             raise ValueError(f"{path.name} has no audio stream")
-        seconds = 32 if slug == "10-sampler-reel" else DURATION
+        seconds = SAMPLER_SEGMENT_SECONDS * len(looks) if slug == "10-sampler-reel" else DURATION
         duration = float(data["format"]["duration"])
         if abs(duration - seconds) >= 0.12:
             raise ValueError(f"{path.name} duration is {duration}, expected {seconds}")
         frames = int(video["nb_frames"])
         if frames != seconds * FPS:
             raise ValueError(f"{path.name} has {frames} frames, expected {seconds * FPS}")
-        expected_size = [WIDTH, 624 if slug == "09-comparison-grid" else HEIGHT]
+        expected_size = [
+            WIDTH,
+            TILE_HEIGHT * comparison_rows(looks) if slug == "09-comparison-grid" else HEIGHT,
+        ]
         size = [video["width"], video["height"]]
         if size != expected_size:
             raise ValueError(f"{path.name} size is {size}, expected {expected_size}")
@@ -482,7 +497,7 @@ def parse_args():
     parser.add_argument("--output", type=Path, default=ROOT / "target" / "demo-site")
     parser.add_argument("--binary", type=Path, default=ROOT / "target" / "release" / "reactive-vcr")
     parser.add_argument("--font", type=Path)
-    parser.add_argument("--size-limit-mib", type=int, default=125)
+    parser.add_argument("--size-limit-mib", type=int, default=SITE_LIMIT_BYTES // (1024 * 1024))
     return parser.parse_args()
 
 

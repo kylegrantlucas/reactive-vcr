@@ -1,0 +1,55 @@
+# Bends only, no tape: hits freeze frame-store bands while bass shuffles its address lines.
+[base]
+ntsc = false
+
+[audio]
+bands.bass = [20, 160]
+bands.mid = [250, 1800]
+bands.air = [3000, 14000]
+normalize = "peak"
+onset_sensitivity = 1.35
+
+[bender]
+seed = 5
+
+[bender.set]
+"hold.enabled" = true
+"hold.band_height" = 24
+"hold.decay" = 0.05
+"address_a.mode" = "xor"
+"address_a.axis" = "column"
+"address_a.bit" = 6
+"address_a.partner_axis" = "row"
+"address_a.partner_bit" = 5
+"clock.enabled" = true
+
+[[modulate]]
+target = "bender.hold.rate"
+source = "onset"
+range = [0.0, 0.9]
+release_ms = 200
+
+[[modulate]]
+target = "bender.address_a.enabled"
+source = "band:bass"
+threshold = 0.45
+release_ms = 120
+
+[[modulate]]
+target = "bender.address_a.coverage"
+source = "band:bass"
+range = [0.2, 1.0]
+curve = "pow:2"
+release_ms = 160
+
+[[modulate]]
+target = "bender.clock.sample_hold"
+source = "band:air"
+range = [1, 8]
+release_ms = 100
+
+[[modulate]]
+target = "bender.clock.glitch_rate"
+source = "band:mid"
+range = [0.0, 0.08]
+release_ms = 150

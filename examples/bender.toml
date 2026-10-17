@@ -1,0 +1,43 @@
+# reactive-vcr example: bender-rs circuit bends ahead of the default VHS look.
+# Bass rolls the picture, hits tear sync and freeze frame-store bands,
+# highs rotate the color burst.
+
+[audio]
+bands.bass = [20, 200]
+bands.high = [3000, 12000]
+normalize = "percentile:98"
+onset_sensitivity = 1.5
+
+[bender]
+order = "before" # or "after" the ntsc-rs stage
+seed = 3
+
+[bender.set]
+"sync.enabled" = true
+"hold.enabled" = true
+"burst.enabled" = true
+
+[[modulate]]
+target = "bender.sync.v_roll"
+source = "band:bass"
+range = [0.0, 0.4]
+curve = "pow:2"
+release_ms = 250
+
+[[modulate]]
+target = "bender.sync.tear_rate"
+source = "onset"
+range = [0.0, 1.0]
+release_ms = 120
+
+[[modulate]]
+target = "bender.hold.rate"
+source = "onset"
+range = [0.0, 0.8]
+release_ms = 200
+
+[[modulate]]
+target = "bender.burst.phase"
+source = "band:high"
+range = [0.0, 90.0]
+release_ms = 200

@@ -39,6 +39,21 @@
       "slug": "08-meltdown",
       "title": "Meltdown",
       "description": "Tracking, color separation, tape warping, and snow react together."
+    },
+    {
+      "slug": "09-rolling-sync",
+      "title": "Rolling sync",
+      "description": "Bass rolls the picture and drum hits tear the sync before the signal reaches tape."
+    },
+    {
+      "slug": "10-frame-store",
+      "title": "Frame store",
+      "description": "Bends only, no tape: hits freeze bands of the frame store while bass shuffles its address lines."
+    },
+    {
+      "slug": "11-burst-drift",
+      "title": "Burst drift",
+      "description": "After the tape stage, melody rotates the color burst while hits trip the color killer."
     }
   ]
 }

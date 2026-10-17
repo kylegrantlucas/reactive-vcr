@@ -1,0 +1,55 @@
+# After the tape stage, melody rotates the color burst while hits trip the color killer.
+[base]
+preset = "../assets/base.json"
+seed = 42
+
+[audio]
+bands.bass = [20, 160]
+bands.mid = [250, 1800]
+bands.air = [3000, 14000]
+normalize = "peak"
+onset_sensitivity = 1.35
+
+[bender]
+order = "after"
+seed = 8
+
+[bender.set]
+"burst.enabled" = true
+"bleed.enabled" = true
+"osc.enabled" = true
+"osc.target" = "chroma"
+"osc.frequency" = 0.02
+
+[[modulate]]
+target = "bender.burst.phase"
+source = "band:mid"
+range = [0.0, 120.0]
+curve = "pow:2"
+attack_ms = 20
+release_ms = 250
+
+[[modulate]]
+target = "bender.burst.saturation"
+source = "rms"
+range = [0.8, 2.2]
+release_ms = 200
+
+[[modulate]]
+target = "bender.burst.killer_rate"
+source = "onset"
+range = [0.0, 0.6]
+release_ms = 110
+
+[[modulate]]
+target = "bender.bleed.smear"
+source = "band:bass"
+range = [0.0, 0.08]
+curve = "pow:3"
+release_ms = 180
+
+[[modulate]]
+target = "bender.osc.amplitude"
+source = "band:air"
+range = [0.0, 0.35]
+release_ms = 140

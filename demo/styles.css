@@ -117,6 +117,7 @@ h3 { font-size: 18px; }
 .command-block code { color: #c6fff3; white-space: nowrap; }
 .copy-command { border: 0; background: transparent; color: var(--cyan); cursor: pointer; font: inherit; font-size: 11px; font-weight: 800; text-transform: uppercase; }
 .comparison-player { max-width: 980px; margin-inline: auto; }
+.comparison-player .video-frame { aspect-ratio: 15 / 13; }
 .look-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
 .look-card { padding: 18px; border: 1px solid var(--line); background: var(--panel); }
 .look-heading { display: flex; gap: 14px; align-items: baseline; }

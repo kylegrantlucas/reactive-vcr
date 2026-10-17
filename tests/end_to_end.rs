@@ -112,6 +112,35 @@ fn renders_modulated_clip_with_mixed_audio() {
 }
 
 #[test]
+fn renders_bender_example_mapping() {
+    if !tool_available("ffmpeg") || !tool_available("ffprobe") {
+        eprintln!("skip: ffmpeg missing");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let (clip, song) = synth(dir.path());
+    let out = dir.path().join("out.mp4");
+    let summary = render(&RenderOptions {
+        video: clip,
+        audio: song,
+        map: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/bender.toml"),
+        output: out.clone(),
+        preview: Some(0.5),
+        start_s: None,
+        duration_s: None,
+        audio_mode: AudioMode::Mix,
+        extra_out_args: vec![],
+        quiet: true,
+    })
+    .unwrap();
+    assert_eq!((summary.width, summary.height), (80, 60));
+    assert_eq!(summary.frames, 60);
+    let (frames, audio_streams) = probe_streams(&out);
+    assert_eq!(frames, 60);
+    assert_eq!(audio_streams, 1);
+}
+
+#[test]
 fn trimmed_render_without_audio() {
     if !tool_available("ffmpeg") || !tool_available("ffprobe") {
         eprintln!("skip: ffmpeg missing");

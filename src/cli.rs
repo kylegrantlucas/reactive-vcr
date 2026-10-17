@@ -6,7 +6,7 @@ use std::path::PathBuf;
 #[command(
     name = "reactive-vcr",
     version,
-    about = "Audio-reactive ntsc-rs VHS effect renderer"
+    about = "Audio-reactive ntsc-rs VHS and bender-rs circuit-bend renderer"
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -19,7 +19,7 @@ pub enum Command {
     Render(RenderArgs),
     /// Dump per-frame audio features and resulting parameter values as CSV.
     Analyze(AnalyzeArgs),
-    /// List every ntsc-rs parameter that can be targeted.
+    /// List every ntsc-rs and bender-rs parameter that can be targeted.
     Params {
         /// Emit JSON instead of a table.
         #[arg(long)]

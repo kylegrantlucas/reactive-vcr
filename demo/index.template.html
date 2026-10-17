@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>reactive-vcr — make analog damage move to the music</title>
-  <meta name="description" content="A scriptable audio-reactive VHS and NTSC renderer built with Rust, ntsc-rs, and FFmpeg.">
+  <meta name="description" content="A scriptable audio-reactive VHS, NTSC, and circuit-bend renderer built with Rust, ntsc-rs, bender-rs, and FFmpeg.">
   <meta name="theme-color" content="#0a0b0d">
   <meta property="og:title" content="reactive-vcr">
   <meta property="og:description" content="Make analog damage move to the music.">
@@ -34,7 +34,7 @@
       <div class="hero-copy">
         <p class="eyebrow"><span class="status-dot"></span> AUDIO IN / ANALOG OUT</p>
         <h1 id="hero-title">Make analog damage <em>move to the music.</em></h1>
-        <p class="lede">reactive-vcr maps bass, frequency bands, and transients to more than sixty ntsc-rs controls—frame by frame, from a readable TOML file.</p>
+        <p class="lede">reactive-vcr maps bass, frequency bands, and transients to more than sixty ntsc-rs controls and every bender-rs circuit bend—frame by frame, from a readable TOML file.</p>
         <div class="actions">
           <a class="button primary" href="https://github.com/kylegrantlucas/reactive-vcr/releases/latest">Download v0.1.0</a>
           <a class="button secondary" href="https://github.com/kylegrantlucas/reactive-vcr">View source</a>
@@ -44,7 +44,7 @@
       <div class="hero-player tape-window">
         <div class="deck-label"><span>DEMO REEL</span><span>00:32</span></div>
         <div class="video-frame">
-          <video id="video-sampler" controls playsinline preload="none" poster="posters/10-sampler-reel.jpg" data-src="media/10-sampler-reel.mp4" aria-label="Thirty-two-second reactive-vcr sampler"></video>
+          <video id="video-sampler" controls playsinline preload="none" poster="posters/10-sampler-reel.jpg" data-src="media/10-sampler-reel.mp4" aria-label="Forty-four-second reactive-vcr sampler"></video>
           <button class="load-video hero-play" type="button" data-for="video-sampler" aria-controls="video-sampler"><span>▶</span> Play the reel</button>
         </div>
         <div class="transport" aria-hidden="true"><span></span><b>REACTIVE SIGNAL</b><span></span></div>
@@ -63,7 +63,7 @@
       <ol class="steps">
         <li><span>01</span><h3>Bring video</h3><p>Use any source FFmpeg can decode.</p></li>
         <li><span>02</span><h3>Bring audio</h3><p>Drive the effect with a separate track.</p></li>
-        <li><span>03</span><h3>Patch parameters</h3><p>Map sound features to ntsc-rs controls in TOML.</p></li>
+        <li><span>03</span><h3>Patch parameters</h3><p>Map sound features to ntsc-rs and bender-rs controls in TOML.</p></li>
       </ol>
       <div class="command-block">
         <code>reactive-vcr render --video in.mp4 --audio song.wav --map fx.toml -o out.mp4</code>
@@ -78,7 +78,7 @@
       </div>
       <div class="tape-window comparison-player">
         <div class="video-frame">
-          <video id="video-comparison" controls playsinline preload="none" poster="posters/09-comparison-grid.jpg" data-src="media/09-comparison-grid.mp4" aria-label="Synchronized comparison of the clean source and eight reactive treatments"></video>
+          <video id="video-comparison" controls playsinline preload="none" poster="posters/09-comparison-grid.jpg" data-src="media/09-comparison-grid.mp4" aria-label="Synchronized comparison of the clean source and eleven reactive treatments"></video>
           <button class="load-video" type="button" data-for="video-comparison" aria-controls="video-comparison"><span>▶</span> Play synchronized comparison</button>
         </div>
       </div>
@@ -86,7 +86,7 @@
 
     <section class="section showcase" id="showcase" aria-labelledby="showcase-title">
       <div class="section-heading compact">
-        <div><p class="eyebrow">PRESET BANK</p><h2 id="showcase-title">Eight ways to break the signal.</h2></div>
+        <div><p class="eyebrow">PRESET BANK</p><h2 id="showcase-title">Eleven ways to break the signal.</h2></div>
         <p>Open a clip, inspect its mapping, then use it as the starting point for your own treatment.</p>
       </div>
       <div class="look-grid">
@@ -116,7 +116,7 @@
 
   <footer>
     <a class="wordmark small" href="#top"><span>REACTIVE</span><i>/</i><span>VCR</span></a>
-    <p>Built with Rust, FFmpeg, and the MIT-licensed ntsc-rs core. Demo audio is original and synthesized.</p>
+    <p>Built with Rust, FFmpeg, the MIT-licensed ntsc-rs core, and the MIT/Apache-2.0 bender-rs core. Demo audio is original and synthesized.</p>
     <div><a href="https://github.com/kylegrantlucas/reactive-vcr">Source</a><a href="https://github.com/kylegrantlucas/reactive-vcr/blob/main/LICENSE">License</a></div>
   </footer>
 </body>

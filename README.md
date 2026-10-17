@@ -6,9 +6,9 @@
 
 Make analog damage move to the music.
 
-`reactive-vcr` renders an [ntsc-rs](https://github.com/valadaptive/ntsc-rs) VHS/NTSC effect whose settings respond to an audio file. A declarative TOML mapping connects RMS level, named frequency bands, and onset events to any supported ntsc-rs setting.
+`reactive-vcr` renders an [ntsc-rs](https://github.com/valadaptive/ntsc-rs) VHS/NTSC effect and [bender-rs](https://github.com/kylegrantlucas/bender-rs) circuit bends whose settings respond to an audio file. A declarative TOML mapping connects RMS level, named frequency bands, and onset events to any supported ntsc-rs or bender-rs setting.
 
-**[Watch the full interactive showcase](https://kylegrantlucas.github.io/reactive-vcr/)** — one clean source, eight treatments, and an original synthesized soundtrack.
+**[Watch the full interactive showcase](https://kylegrantlucas.github.io/reactive-vcr/)** — one clean source, eleven treatments, and an original synthesized soundtrack.
 
 ## Requirements
 
@@ -67,7 +67,7 @@ reactive-vcr analyze \
   --output features.csv
 ```
 
-The [showcase mappings](demo/maps/) provide eight more starting points.
+The [showcase mappings](demo/maps/) provide eleven more starting points, and [`examples/bender.toml`](examples/bender.toml) adds circuit bends ahead of the default VHS look.
 
 ## Commands
 
@@ -93,6 +93,16 @@ The renderer resamples video timestamps to a constant frame rate derived from th
 [base]
 preset = "presets/worn-vhs.json" # optional ntsc-rs GUI preset
 seed = 42                        # optional deterministic noise seed
+ntsc = true                      # false skips ntsc-rs and renders bends only
+
+[bender]
+preset = "bends.json"            # optional bender-rs preset
+seed = 3                         # optional bend seed; overrides the preset
+order = "before"                 # run bends "before" or "after" ntsc-rs
+
+[bender.set]
+"sync.enabled" = true            # any bender-rs setting id; enum values by name
+"invert.mode" = "solarize"
 
 [audio]
 bands.bass = [20, 200]
@@ -120,9 +130,11 @@ For each mapping, the renderer smooths the source, optionally inverts it, applie
 
 RMS and frequency bands use a 60 dB window below their peak or selected percentile. All bands share one reference, which preserves the difference between quiet and loud bands. Onsets are one-frame triggers; `release_ms` turns them into useful decays. Group children such as `tracking_noise_*` take effect only while their group toggle is enabled.
 
-Preset paths are relative to the mapping file. Export a preset from the ntsc-rs GUI, place it beside the mapping or in a subdirectory, and reference it through `[base].preset`.
+bender-rs targets are named `bender.<group>.<setting>`, such as `bender.sync.v_roll`; `reactive-vcr params` lists all of them. Each `bender.<group>.*` setting takes effect only while `bender.<group>.enabled` is on, either from the preset, `[bender.set]`, or a modulation. `[bender.set]` values apply after the preset and are checked strictly: out-of-range values are errors, not clamped. Quoted (`"sync.enabled" = true`), dotted (`sync.enabled = true`), and nested (`[bender.set.sync]`) keys are equivalent.
 
-Validation reports independent mapping errors together, including unknown targets, undefined bands, malformed curves, incompatible target options, and out-of-range values. Output files may not alias any input, preset, symbolic link target, or Unix hard link.
+Preset paths are relative to the mapping file. Export a preset from the ntsc-rs GUI, place it beside the mapping or in a subdirectory, and reference it through `[base].preset`; bender-rs presets go in `[bender].preset`.
+
+Validation reports independent mapping errors together, including unknown targets, undefined bands, malformed curves, incompatible target options, out-of-range values, and ntsc-rs options that have no effect while `[base] ntsc = false`. Output files may not alias any input, preset, symbolic link target, or Unix hard link.
 
 ## Reproducing the showcase
 
@@ -141,4 +153,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Please report security issues through th
 
 ## License
 
-reactive-vcr is licensed under the [MIT License](LICENSE). It uses the ntsc-rs core under ntsc-rs's MIT option. Binary archives include notices for all runtime dependencies.
+reactive-vcr is licensed under the [MIT License](LICENSE). It uses the ntsc-rs core under ntsc-rs's MIT option and the bender-rs core under its MIT option. Binary archives include notices for all runtime dependencies.

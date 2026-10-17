@@ -3,7 +3,7 @@ name = "reactive-vcr"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-description = "Render audio-reactive VHS and NTSC effects from declarative mappings"
+description = "Render audio-reactive VHS, NTSC, and circuit-bent video effects from declarative mappings"
 repository = "https://github.com/kylegrantlucas/reactive-vcr"
 homepage = "https://kylegrantlucas.github.io/reactive-vcr/"
 readme = "README.md"
@@ -13,6 +13,7 @@ publish = false
 
 [dependencies]
 anyhow = "1.0.104"
+bender = { git = "https://github.com/kylegrantlucas/bender-rs", rev = "83c2312867fa3c9e06adb1f161ecfaedd625d5cf", version = "0.1.0" }
 clap = { version = "4.6.7", features = ["derive"] }
 crossbeam-channel = "0.5.17"
 indicatif = "0.18.6"

@@ -159,12 +159,123 @@ range = [100, 0]
     fn loads_preset_relative_to_mapping_file() {
         let dir = tempfile::tempdir().unwrap();
         let c = ParamCatalog::new();
-        let mut e = ntsc_rs::NtscEffect::default();
+        let mut e = EffectSettings::default();
         crate::params::set_param(&mut e, c.get("snow_intensity").unwrap(), 42.0).unwrap();
-        std::fs::write(dir.path().join("p.json"), c.preset_to_json(&e).unwrap()).unwrap();
+        std::fs::write(
+            dir.path().join("p.json"),
+            c.preset_to_json(&e.ntsc).unwrap(),
+        )
+        .unwrap();
         std::fs::write(dir.path().join("m.toml"), "[base]\npreset = \"p.json\"\n").unwrap();
         let m = load(&dir.path().join("m.toml"), &c).unwrap();
         assert_eq!(get_param(&m.base, c.get("snow_intensity").unwrap()), 42.0);
+    }
+
+    #[test]
+    fn compiles_bender_section() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("b.json"),
+            r#"{"version":1,"seed":9,"sync":{"enabled":true,"v_roll":0.2}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("m.toml"),
+            r#"
+[bender]
+preset = "b.json"
+seed = 4
+order = "after"
+
+[bender.set]
+"burst.enabled" = true
+burst.phase = 45
+
+[bender.set.bleed]
+enabled = true
+"#,
+        )
+        .unwrap();
+        let m = load(&dir.path().join("m.toml"), &ParamCatalog::new()).unwrap();
+        let b = &m.base.bender;
+        assert_eq!(b.sync.settings.v_roll, 0.2);
+        assert!(b.burst.enabled);
+        assert_eq!(b.burst.settings.phase, 45.0);
+        assert!(b.bleed.enabled);
+        assert_eq!(b.seed, 4);
+        assert_eq!(m.chain.bend_order, BendOrder::After);
+        assert!(m.chain.ntsc);
+        assert!(
+            m.preset_inputs()
+                .iter()
+                .any(|(label, _)| *label == "bender preset")
+        );
+    }
+
+    #[test]
+    fn reports_bender_set_errors_together() {
+        let err = compile_str(
+            r#"
+[bender.set]
+"sync.v_rol" = 0.1
+"sync.v_roll" = 3
+"invert.mode" = "sideways"
+"rail.sag" = [1]
+seed = 1
+"#,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            err.contains("\"sync.v_rol\"; did you mean sync.v_roll"),
+            "{err}"
+        );
+        for expected in ["out of range", "sideways", "array", "[bender] seed"] {
+            assert!(err.contains(expected), "missing {expected:?} from {err}");
+        }
+    }
+
+    #[test]
+    fn ntsc_bypass_rejects_ntsc_only_options() {
+        let err = compile_str(
+            r#"
+[base]
+ntsc = false
+seed = 1
+
+[[modulate]]
+target = "snow_intensity"
+source = "rms"
+
+[[modulate]]
+target = "bender.sync.v_roll"
+source = "rms"
+"#,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("[base] seed"), "{err}");
+        assert!(err.contains("ntsc-rs target"), "{err}");
+        let m = compile_str(
+            r#"
+[base]
+ntsc = false
+
+[[modulate]]
+target = "bender.sync.v_roll"
+source = "rms"
+"#,
+        )
+        .unwrap();
+        assert!(!m.chain.ntsc);
+    }
+
+    #[test]
+    fn rejects_unknown_bend_order() {
+        let err = compile_str("[bender]\norder = \"sideways\"\n")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("before"), "{err}");
     }
 
     #[test]
@@ -184,9 +295,9 @@ range = [100, 0]
     }
 }
 use crate::curve::Curve;
-use crate::params::{ParamCatalog, set_param};
+use crate::effect::{BendOrder, ChainLayout, EffectSettings};
+use crate::params::{BENDER_PREFIX, ParamCatalog, ParamTarget, set_param};
 use anyhow::{Context as _, Result, anyhow, bail};
-use ntsc_rs::NtscEffect;
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -196,6 +307,7 @@ use std::path::{Path, PathBuf};
 pub struct MappingFile {
     pub base: Option<BaseSection>,
     pub audio: Option<AudioSection>,
+    pub bender: Option<BenderSection>,
     #[serde(default)]
     pub modulate: Vec<ModulationSection>,
 }
@@ -205,6 +317,19 @@ pub struct MappingFile {
 pub struct BaseSection {
     pub preset: Option<PathBuf>,
     pub seed: Option<i32>,
+    /// Run the ntsc-rs stage (default true).
+    pub ntsc: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct BenderSection {
+    pub preset: Option<PathBuf>,
+    pub seed: Option<i32>,
+    pub order: Option<BendOrder>,
+    /// bender-rs setting ids to values; quoted, dotted, and nested keys are equivalent.
+    #[serde(default)]
+    pub set: toml::Table,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -262,11 +387,27 @@ pub struct CompiledModulation {
 pub struct CompiledMapping {
     /// Preset input resolved relative to the mapping, retained for output protection.
     pub preset_path: Option<PathBuf>,
-    pub base: NtscEffect,
+    /// bender-rs preset input resolved relative to the mapping, retained for output protection.
+    pub bender_preset_path: Option<PathBuf>,
+    pub base: EffectSettings,
+    pub chain: ChainLayout,
     pub bands: Vec<(String, [f32; 2])>,
     pub normalize: Normalize,
     pub onset_sensitivity: f32,
     pub modulations: Vec<CompiledModulation>,
+}
+
+impl CompiledMapping {
+    /// Preset files read by this mapping, labeled for error messages.
+    pub fn preset_inputs(&self) -> Vec<(&'static str, &Path)> {
+        [
+            ("preset", self.preset_path.as_deref()),
+            ("bender preset", self.bender_preset_path.as_deref()),
+        ]
+        .into_iter()
+        .filter_map(|(label, path)| path.map(|path| (label, path)))
+        .collect()
+    }
 }
 
 pub fn parse_source(s: &str, bands: &[(String, [f32; 2])]) -> Result<Source> {
@@ -314,6 +455,21 @@ fn parse_normalize(s: &str) -> Result<Normalize> {
     }
 }
 
+/// Flattens nested tables into dotted keys so `"a.b" = 1`, `a.b = 1`, and `[x.a] b = 1` agree.
+fn flatten_table(prefix: &str, table: &toml::Table, out: &mut Vec<(String, toml::Value)>) {
+    for (key, value) in table {
+        let id = if prefix.is_empty() {
+            key.clone()
+        } else {
+            format!("{prefix}.{key}")
+        };
+        match value {
+            toml::Value::Table(inner) => flatten_table(&id, inner, out),
+            other => out.push((id, other.clone())),
+        }
+    }
+}
+
 pub fn load(path: &Path, catalog: &ParamCatalog) -> Result<CompiledMapping> {
     let text = std::fs::read_to_string(path)
         .with_context(|| format!("reading mapping {}", path.display()))?;
@@ -329,7 +485,16 @@ pub fn compile(
 ) -> Result<CompiledMapping> {
     let mut errors = Vec::new();
     let base_section = file.base.unwrap_or_default();
-    let mut base = NtscEffect::default();
+    let ntsc_enabled = base_section.ntsc.unwrap_or(true);
+    if !ntsc_enabled {
+        if base_section.preset.is_some() {
+            errors.push("[base] preset has no effect while [base] ntsc = false".to_string());
+        }
+        if base_section.seed.is_some() {
+            errors.push("[base] seed has no effect while [base] ntsc = false".to_string());
+        }
+    }
+    let mut base = EffectSettings::default();
     let preset_path = base_section.preset.map(|preset| base_dir.join(preset));
     if let Some(full) = &preset_path {
         match std::fs::read_to_string(full)
@@ -339,7 +504,7 @@ pub fn compile(
                     .preset_from_json(&json)
                     .with_context(|| format!("preset {}", full.display()))
             }) {
-            Ok(effect) => base = effect,
+            Ok(effect) => base.ntsc = effect,
             Err(error) => errors.push(error.to_string()),
         }
     }
@@ -349,6 +514,63 @@ pub fn compile(
             errors.push(format!("[base] seed: {error}"));
         }
     }
+
+    let bender_section = file.bender.unwrap_or_default();
+    let bender_preset_path = bender_section.preset.map(|preset| base_dir.join(preset));
+    if let Some(full) = &bender_preset_path {
+        match std::fs::read_to_string(full)
+            .with_context(|| format!("reading bender preset {}", full.display()))
+            .and_then(|json| {
+                bender::BendEffect::from_json(&json)
+                    .map_err(|error| anyhow!("bender preset {}: {error}", full.display()))
+            }) {
+            Ok(effect) => base.bender = effect,
+            Err(error) => errors.push(format!("{error:#}")),
+        }
+    }
+    let mut bender_settings = Vec::new();
+    flatten_table("", &bender_section.set, &mut bender_settings);
+    for (id, value) in bender_settings {
+        if id == "seed" {
+            errors.push("[bender.set] seed: use [bender] seed".to_string());
+            continue;
+        }
+        let raw = match value {
+            toml::Value::String(s) => s,
+            toml::Value::Integer(i) => i.to_string(),
+            toml::Value::Float(f) => f.to_string(),
+            toml::Value::Boolean(b) => b.to_string(),
+            other => {
+                errors.push(format!(
+                    "[bender.set] {id}: expected a number, boolean, or enum name, got {}",
+                    other.type_str()
+                ));
+                continue;
+            }
+        };
+        match base.bender.set_by_id(&id, &raw) {
+            Ok(()) => {}
+            Err(bender::PresetError::UnknownSetting(_)) => {
+                let suggestions = catalog
+                    .suggest(&format!("{BENDER_PREFIX}{id}"), 3)
+                    .into_iter()
+                    .map(|name| name.strip_prefix(BENDER_PREFIX).unwrap_or(name))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                errors.push(format!(
+                    "[bender.set] unknown setting {id:?}; did you mean {suggestions}? (run `reactive-vcr params`)"
+                ));
+            }
+            Err(error) => errors.push(format!("[bender.set] {error}")),
+        }
+    }
+    if let Some(seed) = bender_section.seed {
+        base.bender.seed = seed;
+    }
+    let chain = ChainLayout {
+        ntsc: ntsc_enabled,
+        bend_order: bender_section.order.unwrap_or_default(),
+    };
 
     let audio = file.audio.unwrap_or_default();
     let mut bands = Vec::new();
@@ -441,6 +663,11 @@ pub fn compile(
             continue;
         };
         let param = catalog.param(param_index);
+        if !ntsc_enabled && matches!(param.target, ParamTarget::Ntsc(_)) {
+            errors.push(format!(
+                "{tag}: ntsc-rs target has no effect while [base] ntsc = false"
+            ));
+        }
         let (min, max) = param.kind.bounds();
         let range = if param.kind.is_bool() {
             if modulation.range.is_some() {
@@ -490,7 +717,9 @@ pub fn compile(
     }
     Ok(CompiledMapping {
         preset_path,
+        bender_preset_path,
         base,
+        chain,
         bands,
         normalize,
         onset_sensitivity,

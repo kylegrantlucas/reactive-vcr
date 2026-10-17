@@ -134,9 +134,7 @@ pub fn render(o: &RenderOptions) -> Result<RenderSummary> {
             ("mapping", &o.map),
         ],
     )?;
-    if let Some(preset) = &map.preset_path {
-        validate_output_is_distinct(&o.output, &[("preset", preset)])?;
-    }
+    validate_output_is_distinct(&o.output, &map.preset_inputs())?;
     let samples = decode_mono_f32(&o.audio)?;
     if frames_for(
         samples.len(),
@@ -215,7 +213,7 @@ pub fn render(o: &RenderOptions) -> Result<RenderSummary> {
         ProgressStyle::with_template("{bar:40} {pos}/{len} frames  {per_sec}  eta {eta}")
             .expect("valid fixed progress template"),
     );
-    let mut processor = FrameProcessor::new(width as usize, height as usize);
+    let mut processor = FrameProcessor::new(width as usize, height as usize, map.chain);
     let mut output = vec![0; frame_bytes];
     let mut frames = 0usize;
     let mut primary_error = None;

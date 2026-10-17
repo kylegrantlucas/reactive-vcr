@@ -1,9 +1,9 @@
 use crate::audio::features::FeatureTimeline;
 use crate::curve::lerp;
+use crate::effect::EffectSettings;
 use crate::mapping::CompiledMapping;
 use crate::params::{ParamCatalog, get_param, set_param};
 use crate::smooth::AttackRelease;
-use ntsc_rs::NtscEffect;
 
 pub struct Modulator<'a> {
     catalog: &'a ParamCatalog,
@@ -60,7 +60,7 @@ impl<'a> Modulator<'a> {
     }
 
     /// Build the effect for `frame`. Frames must be requested in increasing order.
-    pub fn effect_for_frame(&mut self, frame: usize) -> NtscEffect {
+    pub fn effect_for_frame(&mut self, frame: usize) -> EffectSettings {
         self.offsets.fill(0.0);
         for (index, modulation) in self.mapping.modulations.iter().enumerate() {
             let mut x = self.features.value(modulation.source, frame);
@@ -100,9 +100,9 @@ mod tests {
     use super::*;
     use crate::audio::features::FeatureTimeline;
     use crate::curve::Curve;
+    use crate::effect::ChainLayout;
     use crate::mapping::{CompiledMapping, CompiledModulation, Normalize, Source};
     use crate::params::{ParamCatalog, get_param};
-    use ntsc_rs::NtscEffect;
 
     fn features(bass: Vec<f32>, onset: Vec<f32>) -> FeatureTimeline {
         let n = bass.len();
@@ -117,7 +117,9 @@ mod tests {
     fn mapping(mods: Vec<CompiledModulation>) -> CompiledMapping {
         CompiledMapping {
             preset_path: None,
-            base: NtscEffect::default(),
+            bender_preset_path: None,
+            base: EffectSettings::default(),
+            chain: ChainLayout::default(),
             bands: vec![("bass".into(), [20.0, 200.0])],
             normalize: Normalize::Peak,
             onset_sensitivity: 1.5,
@@ -157,10 +159,25 @@ mod tests {
     }
 
     #[test]
+    fn band_drives_bender_param() {
+        let c = ParamCatalog::new();
+        let map = mapping(vec![m(
+            &c,
+            "bender.sync.v_roll",
+            Source::Band(0),
+            (0.0, 1.0),
+        )]);
+        let f = features(vec![0.0, 0.5], vec![0.0; 2]);
+        let mut mo = Modulator::new(&c, &map, &f, 30.0);
+        assert_eq!(mo.effect_for_frame(0).bender.sync.settings.v_roll, 0.0);
+        assert_eq!(mo.effect_for_frame(1).bender.sync.settings.v_roll, 0.5);
+    }
+
+    #[test]
     fn multiple_mods_sum_offsets_without_clamping() {
         let c = ParamCatalog::new();
         let p = c.get("snow_intensity").unwrap();
-        let base_v = get_param(&NtscEffect::default(), p);
+        let base_v = get_param(&EffectSettings::default(), p);
         let map = mapping(vec![
             m(&c, "snow_intensity", Source::Band(0), (base_v as f32, 20.0)),
             m(&c, "snow_intensity", Source::Rms, (base_v as f32, 20.0)),
@@ -175,7 +192,7 @@ mod tests {
     fn multiple_mods_sum_offsets_and_clamp() {
         let c = ParamCatalog::new();
         let p = c.get("snow_intensity").unwrap();
-        let base_v = get_param(&NtscEffect::default(), p);
+        let base_v = get_param(&EffectSettings::default(), p);
         let map = mapping(vec![
             m(&c, "snow_intensity", Source::Band(0), (base_v as f32, 80.0)),
             m(&c, "snow_intensity", Source::Rms, (base_v as f32, 80.0)),
