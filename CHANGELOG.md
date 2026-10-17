@@ -4,6 +4,25 @@ All notable changes to reactive-vcr appear here. This project follows [Semantic 
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-17
+
+### Added
+
+- Desktop app (`reactive-vcr.app` on macOS, `reactive-vcr-gui` on Linux). Drop in a video and a song to preview the effect live with sound, edit bands, modulations, and every base setting, see per-frame audio and target meters, save the mapping, and queue renders.
+- `play` command: real-time playback in a GStreamer window with the same per-frame settings as `render`, keyboard seeking and pausing, and live reload of mapping and preset edits.
+- `[base.set]` mapping table for inline ntsc-rs settings, mirroring `[bender.set]`.
+- `render --codec h264|ffv1` and `--quantizer`.
+- macOS release archive with an app bundle that includes the GStreamer runtime, and a Linux arm64 archive.
+
+### Changed
+
+- GStreamer replaces FFmpeg for probing, decoding, and encoding, so FFmpeg is no longer needed. `.mp4` output is H.264 and AAC with the index at the front; `.mkv` output is lossless FFV1 and FLAC. Decoders and resamplers differ from FFmpeg's, so renders and analysis values are close to, not identical with, 0.3.
+- The project is a Cargo workspace: `reactive-vcr` (core), `reactive-vcr-gst`, `reactive-vcr-cli` (the `reactive-vcr` binary), and `reactive-vcr-gui`.
+
+### Removed
+
+- `render --ffmpeg-out-args`. Use `--codec` and `--quantizer` instead.
+
 ## [0.3.0] - 2026-10-17
 
 ### Added
@@ -39,7 +58,8 @@ All notable changes to reactive-vcr appear here. This project follows [Semantic 
 - Public showcase with eight reproducible treatments.
 - Apple Silicon macOS and x86_64 Linux release archives.
 
-[Unreleased]: https://github.com/kylegrantlucas/reactive-vcr/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/kylegrantlucas/reactive-vcr/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/kylegrantlucas/reactive-vcr/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/kylegrantlucas/reactive-vcr/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/kylegrantlucas/reactive-vcr/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/kylegrantlucas/reactive-vcr/releases/tag/v0.1.0

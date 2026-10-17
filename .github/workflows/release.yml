@@ -1,12 +1,18 @@
 name: Release
 
+# A manual run builds and uploads the archives as workflow artifacts without
+# publishing a release.
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
   validate:
@@ -18,15 +24,14 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # stable
-        with:
-          toolchain: stable
-
-      - name: Match tag to package version
+      - name: Match tag to workspace version
+        if: startsWith(github.ref, 'refs/tags/')
         run: |
-          version="$(cargo metadata --locked --no-deps --format-version 1 | jq --raw-output '.packages[0].version')"
-          test "v${version}" = "${GITHUB_REF_NAME}"
+          version="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n1)"
+          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match Cargo.toml version ${version}"
+            exit 1
+          fi
 
   licenses:
     name: Bundle third-party licenses
@@ -46,7 +51,7 @@ jobs:
       - name: Generate license bundle
         run: |
           cargo install --locked cargo-about --version 0.9.2 --features cli
-          cargo about generate --output-file THIRD_PARTY_LICENSES.html about.hbs
+          cargo about generate --locked --output-file THIRD_PARTY_LICENSES.html about.hbs
           test -s THIRD_PARTY_LICENSES.html
           grep --quiet 'ntsc-rs' THIRD_PARTY_LICENSES.html
 
@@ -61,19 +66,50 @@ jobs:
     name: Build (${{ matrix.target }})
     needs: [validate, licenses]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: macos-15
-            target: aarch64-apple-darwin
+          # 22.04 keeps the glibc requirement low enough for older distros.
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+          - os: macos-15
+            target: aarch64-apple-darwin
 
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Name archive
+        # A manual run is named after its branch; keep slashes out of paths.
+        run: echo "ARCHIVE=reactive-vcr-${GITHUB_REF_NAME//\//-}-${{ matrix.target }}" >> "$GITHUB_ENV"
+
+      - name: Install GStreamer (Linux)
+        if: runner.os == 'Linux'
+        # The runner image preinstalls libunwind-14-dev, which conflicts with the
+        # libunwind-dev that libgstreamer1.0-dev depends on.
+        run: |
+          sudo apt-get update
+          sudo apt-get remove --yes libunwind-14-dev || true
+          sudo apt-get install --yes --no-install-recommends \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            libwayland-dev libxkbcommon-dev
+
+      # macOS bundles the official GStreamer runtime (scripts/macos-bundle.sh)
+      # and only needs pkg-config to build against it.
+      - name: Install pkg-config (macOS)
+        if: runner.os == 'macOS'
+        run: brew install pkgconf
+
+      - name: Cache GStreamer packages (macOS)
+        if: runner.os == 'macOS'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ runner.temp }}/gst-pkgs
+          key: gst-pkgs-${{ hashFiles('scripts/macos-bundle.sh') }}
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # stable
@@ -86,24 +122,37 @@ jobs:
         with:
           name: third-party-licenses
 
-      - name: Build release binary
-        env:
-          MACOSX_DEPLOYMENT_TARGET: '11.0'
-        run: cargo build --release --locked --target "${{ matrix.target }}"
+      - name: Build release binaries (Linux)
+        if: runner.os == 'Linux'
+        run: cargo build --release --locked --target "${{ matrix.target }}" -p reactive-vcr-cli -p reactive-vcr-gui
 
-      - name: Smoke-test binary
+      - name: Build app bundle (macOS)
+        if: runner.os == 'macOS'
+        env:
+          GST_PKG_DIR: ${{ runner.temp }}/gst-pkgs
+          MACOSX_DEPLOYMENT_TARGET: '11.0'
+          TARGET: ${{ matrix.target }}
+        run: scripts/macos-bundle.sh "dist/${ARCHIVE}"
+
+      - name: Smoke-test CLI
         run: |
-          binary="target/${{ matrix.target }}/release/reactive-vcr"
+          if [ "${{ runner.os }}" = macOS ]; then
+            binary="dist/${ARCHIVE}/reactive-vcr.app/Contents/MacOS/reactive-vcr"
+          else
+            binary="target/${{ matrix.target }}/release/reactive-vcr"
+          fi
           "${binary}" --version
           "${binary}" params >/dev/null
 
       - name: Package archive
         run: |
-          archive="reactive-vcr-${GITHUB_REF_NAME}-${{ matrix.target }}"
-          mkdir -p "dist/${archive}"
-          cp "target/${{ matrix.target }}/release/reactive-vcr" "dist/${archive}/"
-          cp README.md LICENSE THIRD_PARTY_LICENSES.html "dist/${archive}/"
-          tar -C dist -czf "dist/${archive}.tar.gz" "${archive}"
+          mkdir -p "dist/${ARCHIVE}"
+          if [ "${{ runner.os }}" = Linux ]; then
+            cp "target/${{ matrix.target }}/release/reactive-vcr" \
+              "target/${{ matrix.target }}/release/reactive-vcr-gui" "dist/${ARCHIVE}/"
+          fi
+          cp -R examples README.md LICENSE THIRD_PARTY_LICENSES.html "dist/${ARCHIVE}/"
+          tar -C dist -czf "dist/${ARCHIVE}.tar.gz" "${ARCHIVE}"
 
       - name: Upload release archive
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -114,6 +163,7 @@ jobs:
 
   publish:
     name: Publish GitHub release
+    if: startsWith(github.ref, 'refs/tags/')
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 10

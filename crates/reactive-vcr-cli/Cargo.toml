@@ -1,0 +1,24 @@
+[package]
+name = "reactive-vcr-cli"
+description = "Command-line renderer, analyzer, and player for reactive-vcr"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "reactive-vcr"
+path = "src/main.rs"
+doc = false
+
+[dependencies]
+reactive-vcr.workspace = true
+reactive-vcr-gst.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
