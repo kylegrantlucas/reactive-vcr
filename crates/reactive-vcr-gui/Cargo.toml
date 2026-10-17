@@ -1,0 +1,20 @@
+[package]
+name = "reactive-vcr-gui"
+description = "Desktop app for reactive-vcr: drop in a video and a song, shape the effect live, render"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish.workspace = true
+
+[dependencies]
+reactive-vcr.workspace = true
+reactive-vcr-gst.workspace = true
+anyhow.workspace = true
+eframe.workspace = true
+parking_lot.workspace = true
+rfd.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

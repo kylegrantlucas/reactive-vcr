@@ -8,11 +8,18 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -27,28 +34,30 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Install FFmpeg (Ubuntu)
+      # The ugly (x264enc) and libav (avenc_aac, avenc_ffv1) plugin sets are
+      # needed by the render tests.
+      - name: Install GStreamer (Ubuntu)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --yes ffmpeg
+          sudo apt-get install --yes --no-install-recommends \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav \
+            libwayland-dev libxkbcommon-dev
 
-      - name: Install FFmpeg (macOS)
+      # Homebrew's gstreamer formula includes the ugly and libav plugins.
+      - name: Install GStreamer (macOS)
         if: runner.os == 'macOS'
-        run: brew list ffmpeg >/dev/null 2>&1 || brew install ffmpeg
-
-      - name: Check FFmpeg
-        run: |
-          ffmpeg -version
-          ffprobe -version
+        run: brew install gstreamer pkgconf
 
       - name: Run Rust tests
-        run: cargo test --locked
+        run: cargo test --workspace --locked
 
   quality:
     name: Quality checks
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Check out repository
@@ -60,11 +69,18 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
 
+      - name: Install GStreamer and windowing headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            libwayland-dev libxkbcommon-dev
+
       - name: Check formatting
-        run: cargo fmt --check
+        run: cargo fmt --all --check
 
       - name: Run Clippy
-        run: cargo clippy --locked --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: Test demo generator
         run: python3 -m unittest discover -s demo/tests -v
