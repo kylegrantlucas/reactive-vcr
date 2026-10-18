@@ -5,7 +5,10 @@ use std::process::Command;
 
 const WIDTH: usize = 160;
 const HEIGHT: usize = 120;
+/// One frame as FFV1 output stores it: 4:4:4 YUV, three bytes per pixel.
 const FRAME_BYTES: usize = WIDTH * HEIGHT * 3;
+/// The format and colorimetry render's FFV1 output uses at this size.
+const RENDERED_CAPS: &str = "video/x-raw,format=Y444,colorimetry=bt601";
 
 fn run_pipeline(description: &str) {
     reactive_vcr_gst::init().unwrap();
@@ -74,7 +77,7 @@ fn binary(args: &[&str]) -> std::process::Output {
 
 fn frames(raw: Vec<u8>) -> Vec<[u8; FRAME_BYTES]> {
     let (frames, rest) = raw.as_chunks::<FRAME_BYTES>();
-    assert!(rest.is_empty(), "partial RGB frame");
+    assert!(rest.is_empty(), "partial frame");
     frames.to_vec()
 }
 
@@ -85,14 +88,15 @@ fn example(name: &str) -> PathBuf {
 }
 
 /// Play and render must apply identical effects to identical source pixels, so on a lossless
-/// source every played frame is byte-identical to the rendered one.
+/// source every played frame, converted to YUV as render's FFV1 output is, is byte-identical
+/// to the rendered one.
 #[test]
 fn played_frames_match_rendered_frames() {
     let dir = tempfile::tempdir().unwrap();
     let (clip, song) = (clip(dir.path()), song(dir.path()));
     let rendered = dir.path().join("rendered.mkv");
-    let rendered_rgb = dir.path().join("rendered.rgb");
-    let played_rgb = dir.path().join("played.rgb");
+    let rendered_yuv = dir.path().join("rendered.yuv");
+    let played_yuv = dir.path().join("played.yuv");
     // Feedback blends every frame into the next, so state left over from the preroll frame
     // before the initial seek would show up in every played frame.
     let feedback = dir.path().join("feedback.toml");
@@ -134,14 +138,14 @@ range = [1.0, 1.1]
             .concat(),
         );
         run_pipeline(&format!(
-            "filesrc location={} ! decodebin ! videoconvert ! video/x-raw,format=RGB \
+            "filesrc location={} ! decodebin ! videoconvert ! {RENDERED_CAPS} \
              ! filesink location={}",
             rendered.display(),
-            rendered_rgb.display()
+            rendered_yuv.display()
         ));
         let video_sink = format!(
-            "videoconvert ! video/x-raw,format=RGB ! filesink location={}",
-            played_rgb.display()
+            "videoconvert ! {RENDERED_CAPS} ! filesink location={}",
+            played_yuv.display()
         );
         binary(
             &[
@@ -152,8 +156,8 @@ range = [1.0, 1.1]
             .concat(),
         );
 
-        let rendered = frames(std::fs::read(&rendered_rgb).unwrap());
-        let played = frames(std::fs::read(&played_rgb).unwrap());
+        let rendered = frames(std::fs::read(&rendered_yuv).unwrap());
+        let played = frames(std::fs::read(&played_yuv).unwrap());
         assert_eq!(rendered.len(), 30, "{}", map.display());
         // The sink also receives the preroll frame shown before the initial seek.
         assert!(played.len() >= rendered.len(), "{}", map.display());

@@ -102,7 +102,7 @@ The [showcase mappings](demo/maps/) provide eleven more starting points, and [`e
 reactive-vcr play --video in.mp4 --audio song.wav --map examples/basic.toml
 ```
 
-Each frame gets the same settings that `render` would give it, matched by the frame's timestamp. For a lossless source, the frames that `play` shows are byte-identical to the ones `render` writes. Saved edits to the mapping file or its presets apply while the video plays or sits paused. If an edit does not validate, `play` prints the problems and keeps the previous mapping.
+Each frame gets the same settings that `render` would give it, matched by the frame's timestamp. For a lossless source, the frames that `play` shows are byte-identical to the ones `render` writes once both are converted to the same YUV format. Saved edits to the mapping file or its presets apply while the video plays or sits paused. If an edit does not validate, `play` prints the problems and keeps the previous mapping.
 
 | Key | Action |
 |---|---|
@@ -134,7 +134,7 @@ reactive-vcr params  [--json]
 
 `render` applies the selected audio timeline to the selected video timeline. Its default audio mode mixes the driving audio with the video's original audio. `driving`, `original`, and `none` select one track or silence instead. The output audio always lasts as long as the video.
 
-The output extension picks the codec: `.mp4` writes H.264 and AAC with the index at the front for web playback, and `.mkv` writes lossless FFV1 and FLAC. `--codec` overrides the extension, and `--quantizer` sets H.264 quality (0 is lossless, 18 is the default, 51 is the lowest). Output resolution is the source size scaled by `--preview`.
+The output extension picks the codec: `.mp4` writes H.264 and AAC with the index at the front for web playback, and `.mkv` writes FFV1 and FLAC. FFV1 converts the effect's frames to 4:4:4 YUV, then compresses them losslessly on every CPU core. Both codecs convert with the BT.601 matrix up to 576 lines and BT.709 above, and tag the output to match. `--codec` overrides the extension, and `--quantizer` sets H.264 quality (0 is lossless, 18 is the default, 51 is the lowest). Output resolution is the source size scaled by `--preview`, and the output keeps the source's pixel aspect ratio.
 
 The renderer resamples video to a constant frame rate taken from the first video stream. Variable-rate input may duplicate or drop frames, with duration rounded to a frame boundary. Pass the same rate to `analyze` when comparing its CSV with a render.
 

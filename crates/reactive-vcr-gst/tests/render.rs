@@ -1,8 +1,12 @@
 mod common;
 
-use common::{Render, audio_seconds, clip, example, render, rgb_frames, song};
+use common::{Render, audio_seconds, clip, clip_with, decoded, example, render, rgb_frames, song};
 use reactive_vcr_gst::AudioMode;
+use reactive_vcr_gst::gst;
 use reactive_vcr_gst::render::{OutputCodec, RenderJob, RenderStatus};
+
+/// How FFV1 output stores the 160x120 test clip's RGB frames.
+const SMALL_YUV: &str = "video/x-raw,format=Y444,colorimetry=bt601";
 
 fn job(dir: &std::path::Path, map: std::path::PathBuf, output: &str) -> Render {
     Render {
@@ -40,8 +44,13 @@ fn selected_range_starts_at_the_requested_source_frame() {
     r.duration = Some(1.5);
     r.audio_mode = AudioMode::Driving;
     assert_eq!(render(&r).unwrap(), 45);
-    let frames = rgb_frames(&r.output);
-    let source = rgb_frames(&r.video);
+    // The output is the source's RGB frames converted to YUV, without other changes.
+    let frames = decoded(&r.output, &format!("videoconvert ! {SMALL_YUV}")).1;
+    let source = decoded(
+        &r.video,
+        &format!("videoconvert ! video/x-raw,format=RGB ! videoconvert ! {SMALL_YUV}"),
+    )
+    .1;
     assert_eq!(frames.len(), 45);
     assert!(
         frames[0] == source[30],
@@ -83,6 +92,51 @@ fn renders_h264_mp4() {
     assert_eq!(render(&r).unwrap(), 90);
     assert_eq!(rgb_frames(&r.output).len(), 90);
     assert!(audio_seconds(&r.output).is_some());
+}
+
+/// FFV1 stores the effect's RGB frames as 4:4:4 YUV, tagged with the colorimetry that
+/// decoders assume for untagged video of that height.
+#[test]
+fn ffv1_output_is_tagged_yuv444() {
+    let dir = tempfile::tempdir().unwrap();
+    for (width, height, colorimetry) in [(160, 120, "bt601"), (1280, 720, "bt709")] {
+        let dir = subdir(dir.path(), &height.to_string());
+        let mut r = job(&dir, example("basic.toml"), "out.mkv");
+        r.video = clip_with(&dir, 1, false, &format!("width={width},height={height}"));
+        r.duration = Some(0.2);
+        r.audio_mode = AudioMode::None;
+        render(&r).unwrap();
+        let (info, frames) = decoded(&r.output, "identity");
+        assert_eq!(frames.len(), 6);
+        assert_eq!(info.format(), gstreamer_video::VideoFormat::Y444);
+        assert_eq!(
+            info.colorimetry().to_string(),
+            colorimetry,
+            "{height} lines"
+        );
+    }
+}
+
+#[test]
+fn renders_keep_the_source_pixel_aspect_ratio() {
+    let dir = tempfile::tempdir().unwrap();
+    for (output, codec) in [
+        ("out.mkv", OutputCodec::Ffv1),
+        ("out.mp4", OutputCodec::H264 { quantizer: 18 }),
+    ] {
+        let mut r = job(dir.path(), example("basic.toml"), output);
+        r.video = clip_with(
+            &subdir(dir.path(), "anamorphic"),
+            1,
+            true,
+            "width=160,height=120,pixel-aspect-ratio=4/5",
+        );
+        r.codec = codec;
+        r.duration = Some(0.5);
+        render(&r).unwrap();
+        let (info, _) = decoded(&r.output, "identity");
+        assert_eq!(info.par(), gst::Fraction::new(4, 5), "{output}");
+    }
 }
 
 #[test]

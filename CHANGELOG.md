@@ -4,10 +4,22 @@ All notable changes to reactive-vcr appear here. This project follows [Semantic 
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-17
+
 ### Added
 
 - Live deck on the showcase site: the core runs in the browser as WebAssembly and bends the demo clip, your video, or your camera to the demo beat or your song, with the showcase mappings as presets. Nothing is uploaded.
 - `mapping::compile_with` compiles a mapping with preset files supplied by the caller instead of the filesystem.
+
+### Changed
+
+- Faster renders: FFV1 encodes on every CPU core with 16 slices, the effect runs on a separate thread from conversion and encoding for both FFV1 and H.264, and source conversion and scaling use every core. A 10-second 1080p FFV1 render on an M2 Max went from 32 s to 22 s.
+- FFV1 output is 4:4:4 YUV instead of RGB (bgr0), which is smaller. Frames convert with BT.601 up to 576 lines and BT.709 above, and both FFV1 and H.264 output carry matching colour tags.
+- Sliced FFV1 input decodes on every core.
+
+### Fixed
+
+- Renders and playback keep the source's pixel aspect ratio instead of resetting it to square pixels, so anamorphic video keeps its shape.
 
 ## [0.4.0] - 2026-10-17
 
@@ -63,7 +75,8 @@ All notable changes to reactive-vcr appear here. This project follows [Semantic 
 - Public showcase with eight reproducible treatments.
 - Apple Silicon macOS and x86_64 Linux release archives.
 
-[Unreleased]: https://github.com/kylegrantlucas/reactive-vcr/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/kylegrantlucas/reactive-vcr/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/kylegrantlucas/reactive-vcr/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/kylegrantlucas/reactive-vcr/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/kylegrantlucas/reactive-vcr/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/kylegrantlucas/reactive-vcr/compare/v0.1.0...v0.2.0

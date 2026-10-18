@@ -248,6 +248,8 @@ fn gate(pad: gst::Pad) -> Result<(gst::Pad, gst::PadProbeId)> {
 }
 
 fn property_element(factory: &str, properties: &[(&str, &str)]) -> Result<gst::Element> {
+    // Building the element first registers its enum and flags types, so string values such
+    // as avenc_ffv1's `threads=auto` resolve.
     let element = make(factory)?;
     for (name, value) in properties {
         element.set_property_from_str(name, value);
@@ -255,15 +257,24 @@ fn property_element(factory: &str, properties: &[(&str, &str)]) -> Result<gst::E
     Ok(element)
 }
 
+/// Caps for the effect's RGB frames converted to YUV `format`. SD frames use BT.601 and
+/// larger ones BT.709, the matrices players assume for untagged video; the tags are written
+/// to the output so decoders convert back with the same matrix.
+fn yuv_caps(format: &str, height: u32) -> String {
+    let colorimetry = if height > 576 { "bt709" } else { "bt601" };
+    format!("video/x-raw,format={format},colorimetry={colorimetry}")
+}
+
 fn build(settings: &RenderSettings) -> Result<Built> {
     let pipeline = gst::Pipeline::new();
     let filter = ReactiveFilter::new(settings.program.clone());
     filter.limit_frames(settings.selection.frames);
+    let height = settings.selection.height;
     let (muxer, video_encoder, audio_encoder) = match settings.codec {
         OutputCodec::H264 { quantizer } => (
             property_element("mp4mux", &[("faststart", "true")])?,
             vec![
-                property_element("capsfilter", &[("caps", "video/x-raw,format=I420")])?,
+                property_element("capsfilter", &[("caps", &yuv_caps("I420", height))])?,
                 property_element(
                     "x264enc",
                     &[
@@ -278,9 +289,10 @@ fn build(settings: &RenderSettings) -> Result<Built> {
         OutputCodec::Ffv1 => (
             make("matroskamux")?,
             vec![
-                // BGRx keeps FFV1 lossless for RGB frames.
-                property_element("capsfilter", &[("caps", "video/x-raw,format=BGRx")])?,
-                make("avenc_ffv1")?,
+                // 4:4:4 keeps full chroma, as ntsc-rs does for FFV1 without subsampling.
+                property_element("capsfilter", &[("caps", &yuv_caps("Y444", height))])?,
+                // Slices let FFV1 encode each frame on every core.
+                property_element("avenc_ffv1", &[("threads", "auto"), ("slices", "16")])?,
             ],
             make("flacenc")?,
         ),
@@ -294,7 +306,20 @@ fn build(settings: &RenderSettings) -> Result<Built> {
     muxer.link(&file)?;
 
     let (video_in, sized) = video_chain(&pipeline, &settings.selection, true)?;
-    let mut video = vec![filter.clone().upcast(), make("videoconvert")?];
+    // The queue runs conversion and encoding on their own thread, apart from the effect.
+    // A few frames are enough to keep both busy.
+    let mut video = vec![
+        filter.clone().upcast(),
+        property_element(
+            "queue",
+            &[
+                ("max-size-buffers", "4"),
+                ("max-size-bytes", "0"),
+                ("max-size-time", "0"),
+            ],
+        )?,
+        make("videoconvert")?,
+    ];
     video.extend(video_encoder);
     pipeline.add_many(&video)?;
     sized.link(&video[0])?;

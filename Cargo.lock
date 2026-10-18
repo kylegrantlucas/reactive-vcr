@@ -3242,7 +3242,7 @@ dependencies = [
 
 [[package]]
 name = "reactive-vcr"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "bender",
@@ -3257,7 +3257,7 @@ dependencies = [
 
 [[package]]
 name = "reactive-vcr-cli"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -3269,7 +3269,7 @@ dependencies = [
 
 [[package]]
 name = "reactive-vcr-gst"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "gstreamer",
@@ -3284,7 +3284,7 @@ dependencies = [
 
 [[package]]
 name = "reactive-vcr-gui"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "eframe",
@@ -3297,7 +3297,7 @@ dependencies = [
 
 [[package]]
 name = "reactive-vcr-wasm"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "reactive-vcr",

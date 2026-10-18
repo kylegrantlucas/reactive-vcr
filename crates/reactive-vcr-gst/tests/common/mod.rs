@@ -32,6 +32,11 @@ pub fn run(description: &str) {
 
 /// A lossless FFV1 test-pattern clip with a 440 Hz FLAC track.
 pub fn clip(dir: &Path, seconds: u32, with_audio: bool) -> PathBuf {
+    clip_with(dir, seconds, with_audio, "width=160,height=120")
+}
+
+/// Like `clip`, with extra video caps fields such as size and pixel aspect ratio.
+pub fn clip_with(dir: &Path, seconds: u32, with_audio: bool, caps: &str) -> PathBuf {
     let path = dir.join("clip.mkv");
     let frames = seconds * 30;
     let audio = if with_audio {
@@ -42,7 +47,7 @@ pub fn clip(dir: &Path, seconds: u32, with_audio: bool) -> PathBuf {
         String::new()
     };
     run(&format!(
-        "videotestsrc pattern=smpte num-buffers={frames} ! video/x-raw,width=160,height=120,framerate=30/1 \
+        "videotestsrc pattern=smpte num-buffers={frames} ! video/x-raw,{caps},framerate=30/1 \
          ! videoconvert ! video/x-raw,format=BGRx ! avenc_ffv1 ! matroskamux name=m \
          ! filesink location={}{audio}",
         path.display()
@@ -70,10 +75,15 @@ pub fn example(name: &str) -> PathBuf {
 
 /// Every video frame of `path` as packed RGB at its own size.
 pub fn rgb_frames(path: &Path) -> Vec<Vec<u8>> {
+    decoded(path, "videoconvert ! video/x-raw,format=RGB").1
+}
+
+/// The decoded video of `path` after the gst-launch fragment `convert`: the caps of its
+/// first frame, and every frame's planes concatenated without row padding.
+pub fn decoded(path: &Path, convert: &str) -> (gstreamer_video::VideoInfo, Vec<Vec<u8>>) {
     reactive_vcr_gst::init().unwrap();
     let pipeline = gst::parse::launch(&format!(
-        "filesrc location={} ! decodebin ! videoconvert ! video/x-raw,format=RGB \
-         ! appsink name=sink sync=false",
+        "filesrc location={} ! decodebin ! {convert} ! appsink name=sink sync=false caps=video/x-raw",
         path.display()
     ))
     .unwrap()
@@ -86,24 +96,39 @@ pub fn rgb_frames(path: &Path) -> Vec<Vec<u8>> {
         .unwrap();
     single_threaded_libav(pipeline.upcast_ref());
     pipeline.set_state(gst::State::Playing).unwrap();
+    let mut first = None;
     let mut frames = Vec::new();
     while let Ok(sample) = sink.pull_sample() {
-        let caps = sample.caps().unwrap();
-        let info = gstreamer_video::VideoInfo::from_caps(caps).unwrap();
-        let map = sample.buffer().unwrap().map_readable().unwrap();
-        let row = info.width() as usize * 3;
-        let stride = info.stride()[0] as usize;
-        frames.push(
-            map.as_slice()
+        let info = gstreamer_video::VideoInfo::from_caps(sample.caps().unwrap()).unwrap();
+        let frame = gstreamer_video::VideoFrameRef::from_buffer_ref_readable(
+            sample.buffer().unwrap(),
+            &info,
+        )
+        .unwrap();
+        let mut bytes = Vec::new();
+        for plane in 0..info.n_planes() {
+            let component = info
+                .format_info()
+                .plane()
+                .iter()
+                .position(|&owner| owner == plane)
+                .unwrap() as u8;
+            let row = info.comp_width(component) as usize * info.comp_pstride(component) as usize;
+            let stride = info.stride()[plane as usize] as usize;
+            for line in frame
+                .plane_data(plane)
+                .unwrap()
                 .chunks(stride)
-                .take(info.height() as usize)
-                .flat_map(|line| &line[..row])
-                .copied()
-                .collect(),
-        );
+                .take(info.comp_height(component) as usize)
+            {
+                bytes.extend_from_slice(&line[..row]);
+            }
+        }
+        frames.push(bytes);
+        first.get_or_insert(info);
     }
     pipeline.set_state(gst::State::Null).unwrap();
-    frames
+    (first.expect("a decoded video frame"), frames)
 }
 
 /// gst-libav 1.24's frame-threaded FFV1 decoder sometimes loses the last frame at end of

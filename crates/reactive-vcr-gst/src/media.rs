@@ -150,7 +150,8 @@ pub fn add_source(
     pipeline.add_many([&source, &decode])?;
     source.link(&decode)?;
     // gst-libav 1.24's frame-threaded FFV1 decoder sometimes loses a file's last frame at end
-    // of stream; one thread keeps every frame of lossless sources.
+    // of stream. Slice threads decode one frame at a time, so they keep every frame and
+    // still use every core on sliced FFV1, such as reactive-vcr's own renders.
     decode
         .downcast_ref::<gst::Bin>()
         .expect("decodebin is a bin")
@@ -159,7 +160,8 @@ pub fn add_source(
                 .factory()
                 .is_some_and(|factory| factory.name() == "avdec_ffv1")
             {
-                element.set_property("max-threads", 1i32);
+                element.set_property_from_str("thread-type", "slice");
+                element.set_property("max-threads", 0i32);
             }
         });
 
@@ -214,6 +216,7 @@ pub fn add_source(
 }
 
 /// `queue ! videoconvert ! videoscale [! videorate] ! capsfilter(RGB, size[, rate])`.
+/// The source's pixel aspect ratio carries through, adjusted for any scaling.
 /// Returns the chain's input pad and last element.
 pub fn video_chain(
     pipeline: &gst::Pipeline,
@@ -223,9 +226,14 @@ pub fn video_chain(
     let mut caps = gst_video::VideoCapsBuilder::new()
         .format(gst_video::VideoFormat::Rgb)
         .width(selection.width as i32)
-        .height(selection.height as i32)
-        .pixel_aspect_ratio(gst::Fraction::new(1, 1));
-    let mut elements = vec![make("queue")?, make("videoconvert")?, make("videoscale")?];
+        .height(selection.height as i32);
+    // Conversion and scaling run on the effect's thread; spread them over every core.
+    let mut elements = vec![make("queue")?];
+    for factory in ["videoconvert", "videoscale"] {
+        let element = make(factory)?;
+        element.set_property("n-threads", 0u32);
+        elements.push(element);
+    }
     if constant_rate {
         elements.push(make("videorate")?);
         caps = caps.framerate(gst::Fraction::new(selection.fps_n, selection.fps_d));
