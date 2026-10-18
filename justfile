@@ -31,6 +31,36 @@ params:
 play video audio map="examples/basic.toml":
     cargo run --release --locked -p reactive-vcr-cli -- play --video {{video}} --audio {{audio}} --map {{map}}
 
+# Stream live video through the effect, driven by live audio (defaults: camera and microphone)
+stream *ARGS:
+    cargo run --release --locked -p reactive-vcr-cli -- stream {{ARGS}}
+
+# Build the OBS Studio plugin and install it into this user's OBS plugins directory
+obs-install:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "$(uname -s)" in
+      Darwin)
+        target=aarch64-apple-darwin
+        plugins_dir="$HOME/Library/Application Support/obs-studio/plugins"
+        installed=reactive-vcr.plugin
+        ;;
+      Linux)
+        target="$(uname -m)-unknown-linux-gnu"
+        plugins_dir="$HOME/.config/obs-studio/plugins"
+        installed=reactive-vcr
+        ;;
+      *)
+        echo "obs-install supports macOS and Linux" >&2
+        exit 1
+        ;;
+    esac
+    cargo build --release --locked -p reactive-vcr-obs --target "$target"
+    mkdir -p "$plugins_dir"
+    rm -rf "${plugins_dir:?}/$installed"
+    scripts/obs-plugin.sh "$target" "$plugins_dir"
+    echo "installed $plugins_dir/$installed"
+
 analyze audio map="examples/basic.toml" fps="30" out="target/features.csv":
     cargo run --release --locked -p reactive-vcr-cli -- analyze --audio {{audio}} --map {{map}} --fps {{fps}} -o {{out}}
 

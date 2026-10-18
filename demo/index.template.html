@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>reactive-vcr — make analog damage move to the music</title>
-  <meta name="description" content="A scriptable audio-reactive VHS, NTSC, and circuit-bend renderer with a live desktop app, built with Rust, ntsc-rs, bender-rs, and GStreamer.">
+  <meta name="description" content="A scriptable audio-reactive VHS, NTSC, and circuit-bend renderer with a live desktop app, live camera mode, and an OBS plugin for streams, built with Rust, ntsc-rs, bender-rs, and GStreamer.">
   <meta name="theme-color" content="#0a0b0d">
   <meta property="og:title" content="reactive-vcr">
   <meta property="og:description" content="Make analog damage move to the music.">
@@ -26,6 +26,7 @@
       <a href="#live">Try it live</a>
       <a href="#how">How it works</a>
       <a href="#app">Desktop app</a>
+      <a href="#on-air">Go live</a>
       <a href="#showcase">Showcase</a>
       <a href="#install">Install</a>
       <a href="https://github.com/kylegrantlucas/reactive-vcr">GitHub</a>
@@ -37,12 +38,12 @@
       <div class="hero-copy">
         <p class="eyebrow"><span class="status-dot"></span> AUDIO IN / ANALOG OUT</p>
         <h1 id="hero-title">Make analog damage <em>move to the music.</em></h1>
-        <p class="lede">reactive-vcr maps bass, frequency bands, and transients to more than sixty ntsc-rs controls and every bender-rs circuit bend—frame by frame, from a readable TOML file. Tune the look live in the desktop app, then render.</p>
+        <p class="lede">reactive-vcr maps bass, frequency bands, and transients to more than sixty ntsc-rs controls and every bender-rs circuit bend—frame by frame, from a readable TOML file. Tune the look in the desktop app and render it, or take it on air with your camera, your mic, and OBS.</p>
         <div class="actions">
-          <a class="button primary" href="https://github.com/kylegrantlucas/reactive-vcr/releases/latest">Download v0.4.0</a>
+          <a class="button primary" href="https://github.com/kylegrantlucas/reactive-vcr/releases/latest">Download v0.5.0</a>
           <a class="button secondary" href="#live">Try it live</a>
         </div>
-        <p class="platform-note">Apple Silicon macOS · x86_64 and arm64 Linux · MIT</p>
+        <p class="platform-note">Apple Silicon macOS · x86_64 and arm64 Linux · OBS plugin</p>
       </div>
       <div class="hero-player tape-window">
         <div class="deck-label"><span>DEMO REEL</span><span>00:44</span></div>
@@ -138,6 +139,22 @@
       </div>
     </section>
 
+    <section class="section how" id="on-air" aria-labelledby="on-air-title">
+      <div class="section-heading">
+        <p class="eyebrow">ON AIR</p>
+        <h2 id="on-air-title">Put the damage on your stream.</h2>
+      </div>
+      <ol class="steps">
+        <li><span>01</span><h3>Point a camera at the room</h3><p>Your webcam runs through the deck in real time while your microphone drives it. The tape tears on the kick and snows when the crowd gets loud.</p></li>
+        <li><span>02</span><h3>Add it to any OBS scene</h3><p>Drop the reactive-vcr filter on a webcam, game capture, or screen share, then pick the mic, music bed, or desktop audio that drives it.</p></li>
+        <li><span>03</span><h3>Change looks mid-show</h3><p>Save the mapping and the new treatment lands within a quarter second, and the stream keeps going.</p></li>
+      </ol>
+      <div class="command-block">
+        <code>reactive-vcr stream --map fx.toml</code>
+        <button class="copy-command" type="button" aria-label="Copy stream command">Copy</button>
+      </div>
+    </section>
+
     <section class="section compare" aria-labelledby="compare-title">
       <div class="section-heading compact">
         <div><p class="eyebrow">A–L / 3 × 4 GRID</p><h2 id="compare-title">Same signal. Twelve views.</h2></div>
@@ -171,8 +188,8 @@
     <section class="section install" id="install" aria-labelledby="install-title">
       <div>
         <p class="eyebrow">GET THE DECK</p>
-        <h2 id="install-title">An app, a binary, and a mapping file.</h2>
-        <p>On Apple Silicon macOS, download <code>reactive-vcr.app</code> with GStreamer bundled inside and the command-line tool included. On x86_64 or arm64 Linux, the archive holds <code>reactive-vcr</code> and <code>reactive-vcr-gui</code>, which use the system GStreamer. No FFmpeg required.</p>
+        <h2 id="install-title">An app, a binary, an OBS plugin, and a mapping file.</h2>
+        <p>On Apple Silicon macOS, download <code>reactive-vcr.app</code> with GStreamer bundled inside and the command-line tool included. On x86_64 or arm64 Linux, the archive holds <code>reactive-vcr</code> and <code>reactive-vcr-gui</code>, which use the system GStreamer. No FFmpeg required. Streaming? Grab the OBS plugin for Windows, macOS, or Linux and drop it in your OBS plugins folder.</p>
       </div>
       <div class="install-links">
         <a class="button primary" href="https://github.com/kylegrantlucas/reactive-vcr/releases/latest">Latest release</a>
@@ -183,7 +200,7 @@
 
   <footer>
     <a class="wordmark small" href="#top"><span>REACTIVE</span><i>/</i><span>VCR</span></a>
-    <p>Built with Rust, GStreamer, the MIT-licensed ntsc-rs core, and the MIT/Apache-2.0 bender-rs core. Demo audio is original and synthesized.</p>
+    <p>Built with Rust, GStreamer, the MIT-licensed ntsc-rs core, and the MIT/Apache-2.0 bender-rs core. Demo audio is original and synthesized. The OBS plugin is GPL-2.0-or-later.</p>
     <div><a href="https://github.com/kylegrantlucas/reactive-vcr">Source</a><a href="https://github.com/kylegrantlucas/reactive-vcr/blob/main/LICENSE">License</a></div>
   </footer>
 </body>

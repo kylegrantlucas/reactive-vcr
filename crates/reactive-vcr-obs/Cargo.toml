@@ -1,0 +1,22 @@
+[package]
+name = "reactive-vcr-obs"
+description = "OBS Studio video filter applying reactive-vcr effects driven by a live audio source"
+version.workspace = true
+edition.workspace = true
+# Links libobs (GPL-2.0-or-later); the rest of the workspace stays MIT.
+license = "GPL-2.0-or-later"
+repository.workspace = true
+homepage.workspace = true
+publish.workspace = true
+
+[lib]
+name = "reactive_vcr_obs"
+crate-type = ["cdylib"]
+# A test harness would be an executable with unresolved libobs symbols.
+test = false
+doctest = false
+
+[dependencies]
+reactive-vcr.workspace = true
+anyhow.workspace = true
+parking_lot.workspace = true

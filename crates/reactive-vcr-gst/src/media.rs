@@ -65,6 +65,23 @@ pub fn sink(description: &str) -> Result<gst::Element> {
     Ok(bin.upcast())
 }
 
+/// A source built from a gst-launch description, such as `autovideosrc` or
+/// `videotestsrc is-live=true ! video/x-raw,framerate=30/1`.
+pub fn source(description: &str) -> Result<gst::Element> {
+    // A trailing caps filter only parses between two elements, so end on a no-op one.
+    let bin = gst::parse::bin_from_description(&format!("{description} ! identity"), true)
+        .with_context(|| format!("invalid GStreamer source `{description}`"))?;
+    Ok(bin.upcast())
+}
+
+/// Whether `error` is `video_sink` reporting that its window was closed.
+pub fn is_window_closed(error: &gst::message::Error, video_sink: &gst::Element) -> bool {
+    let from_video_sink = error.src().is_some_and(|source| {
+        source == video_sink.upcast_ref::<gst::Object>() || source.has_as_ancestor(video_sink)
+    });
+    from_video_sink && error.error().matches(gst::ResourceError::NotFound)
+}
+
 pub fn seconds(value: f64) -> gst::ClockTime {
     gst::ClockTime::from_nseconds((value * 1e9).round().max(0.0) as u64)
 }

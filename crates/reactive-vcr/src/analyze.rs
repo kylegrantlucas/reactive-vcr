@@ -59,7 +59,7 @@ pub fn target_values(
     features: &FeatureTimeline,
     fps: f64,
 ) -> (Vec<&'static str>, Vec<Vec<f64>>) {
-    let mut modulator = Modulator::new(catalog, map, features, fps);
+    let mut modulator = Modulator::new(catalog, map, fps);
     let names = modulator
         .target_indices()
         .iter()
@@ -67,7 +67,7 @@ pub fn target_values(
         .collect();
     let values = (0..features.frames)
         .map(|frame| {
-            modulator.effect_for_frame(frame);
+            modulator.effect(catalog, &map.base, |source| features.value(source, frame));
             modulator.last_values().to_vec()
         })
         .collect();

@@ -1,4 +1,5 @@
-//! Video filter that applies the precomputed schedule to each frame by stream time.
+//! Video filter that applies an effect to each frame: from a precomputed schedule by stream
+//! time, or from live audio analysis frame by frame.
 
 use gstreamer as gst;
 use gstreamer::glib;
@@ -7,6 +8,7 @@ use gstreamer_base as gst_base;
 use gstreamer_video as gst_video;
 use reactive_vcr::audio::features::FeatureTimeline;
 use reactive_vcr::effect::EffectSettings;
+use reactive_vcr::live::LiveProgram;
 use reactive_vcr::mapping::CompiledMapping;
 use reactive_vcr::modulate::Schedule;
 use reactive_vcr::params::ParamCatalog;
@@ -49,6 +51,15 @@ impl Program {
     }
 }
 
+/// Where the filter gets each frame's effect.
+#[derive(Clone)]
+pub(crate) enum Driver {
+    /// Precomputed schedule, looked up by stream time.
+    Schedule(Arc<Program>),
+    /// Live analysis, advanced once per frame.
+    Live(Arc<parking_lot::Mutex<LiveProgram>>),
+}
+
 /// Schedule frame for a source stream time, matching `render`'s constant-rate frame numbering.
 pub fn frame_index(stream_time: gst::ClockTime, start_s: f64, fps: f64) -> usize {
     let offset_s = stream_time.nseconds() as f64 / 1e9 - start_s;
@@ -67,9 +78,16 @@ impl ReactiveFilter {
         filter
     }
 
+    /// A filter driven by live analysis; its frame rate follows the negotiated caps.
+    pub fn new_live(live: Arc<parking_lot::Mutex<LiveProgram>>) -> Self {
+        let filter: Self = glib::Object::new();
+        *filter.imp().driver.lock() = Some(Driver::Live(live));
+        filter
+    }
+
     /// Swap the schedule; the next frame uses it.
     pub fn set_program(&self, program: Arc<Program>) {
-        *self.imp().program.lock() = Some(program);
+        *self.imp().driver.lock() = Some(Driver::Schedule(program));
     }
 
     pub fn frames_processed(&self) -> u64 {
@@ -87,7 +105,7 @@ impl ReactiveFilter {
 }
 
 mod imp {
-    use super::{KEY_MESSAGE, Program, VIDEO_EOS_MESSAGE};
+    use super::{Driver, KEY_MESSAGE, VIDEO_EOS_MESSAGE};
     use gstreamer as gst;
     use gstreamer::glib;
     use gstreamer::prelude::*;
@@ -100,12 +118,12 @@ mod imp {
     use gstreamer_video::subclass::prelude::*;
     use parking_lot::Mutex;
     use reactive_vcr::effect::FrameProcessor;
+    use std::sync::LazyLock;
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-    use std::sync::{Arc, LazyLock};
 
     #[derive(Default)]
     pub struct ReactiveFilter {
-        pub(super) program: Mutex<Option<Arc<Program>>>,
+        pub(super) driver: Mutex<Option<Driver>>,
         processor: Mutex<Option<FrameProcessor>>,
         pub(super) processed: AtomicU64,
         /// Frames at or past this schedule index are dropped; 0 keeps every frame.
@@ -202,31 +220,56 @@ mod imp {
     }
 
     impl VideoFilterImpl for ReactiveFilter {
+        fn set_info(
+            &self,
+            incaps: &gst::Caps,
+            in_info: &gst_video::VideoInfo,
+            outcaps: &gst::Caps,
+            out_info: &gst_video::VideoInfo,
+        ) -> Result<(), gst::LoggableError> {
+            if let Some(Driver::Live(live)) = self.driver.lock().as_ref() {
+                let fps = in_info.fps();
+                if fps.numer() > 0 {
+                    live.lock().set_fps(fps.numer() as f64 / fps.denom() as f64);
+                }
+            }
+            self.parent_set_info(incaps, in_info, outcaps, out_info)
+        }
+
         fn transform_frame(
             &self,
             in_frame: &gst_video::VideoFrameRef<&gst::BufferRef>,
             out_frame: &mut gst_video::VideoFrameRef<&mut gst::BufferRef>,
         ) -> Result<gst::FlowSuccess, gst::FlowError> {
-            let program = self
-                .program
+            let driver = self
+                .driver
                 .lock()
                 .clone()
                 .ok_or(gst::FlowError::NotNegotiated)?;
-            let pts = in_frame.buffer().pts().ok_or(gst::FlowError::Error)?;
-            let segment = self.obj().segment();
-            let stream_time = segment
-                .downcast_ref::<gst::ClockTime>()
-                .and_then(|segment| segment.to_stream_time(pts))
-                .unwrap_or(pts);
-            let (frame, effect) = program.effect_at(stream_time);
-            let limit = self.frame_limit.load(Ordering::Relaxed);
-            if limit != 0 && frame >= limit {
-                return Ok(gstreamer_base::BASE_TRANSFORM_FLOW_DROPPED);
-            }
+            let (frame, effect, chain) = match driver {
+                Driver::Schedule(program) => {
+                    let pts = in_frame.buffer().pts().ok_or(gst::FlowError::Error)?;
+                    let segment = self.obj().segment();
+                    let stream_time = segment
+                        .downcast_ref::<gst::ClockTime>()
+                        .and_then(|segment| segment.to_stream_time(pts))
+                        .unwrap_or(pts);
+                    let (frame, effect) = program.effect_at(stream_time);
+                    let limit = self.frame_limit.load(Ordering::Relaxed);
+                    if limit != 0 && frame >= limit {
+                        return Ok(gstreamer_base::BASE_TRANSFORM_FLOW_DROPPED);
+                    }
+                    (frame, effect, program.schedule.chain())
+                }
+                Driver::Live(live) => {
+                    let mut live = live.lock();
+                    let (frame, effect) = live.next_frame();
+                    (frame, effect, live.chain())
+                }
+            };
 
             let width = in_frame.width() as usize;
             let height = in_frame.height() as usize;
-            let chain = program.schedule.chain();
             let mut processor = self.processor.lock();
             let processor = match processor.as_mut() {
                 Some(current) if current.fits(width, height, chain) => current,

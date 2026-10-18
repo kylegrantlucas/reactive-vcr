@@ -46,6 +46,9 @@ pub struct FrameProcessor {
     rgba_out: Vec<u8>,
     /// RGB24 frame between the two stages.
     staged: Vec<u8>,
+    /// Packed RGB24 input and output for `process_bgra`.
+    bgra_rgb_in: Vec<u8>,
+    bgra_rgb_out: Vec<u8>,
 }
 
 impl FrameProcessor {
@@ -64,6 +67,8 @@ impl FrameProcessor {
             rgba_in: Vec::new(),
             rgba_out: Vec::new(),
             staged: Vec::new(),
+            bgra_rgb_in: Vec::new(),
+            bgra_rgb_out: Vec::new(),
         }
     }
 
@@ -152,6 +157,52 @@ impl FrameProcessor {
                 self.staged = staged;
             }
         }
+    }
+
+    /// Process BGRA frames whose rows start every `*_stride` bytes. Each output pixel keeps its
+    /// input alpha.
+    pub fn process_bgra(
+        &mut self,
+        effects: &EffectSettings,
+        frame_num: usize,
+        input: &[u8],
+        input_stride: usize,
+        output: &mut [u8],
+        output_stride: usize,
+    ) {
+        let bgra_row = self.width * 4;
+        for (name, len, stride) in [
+            ("input", input.len(), input_stride),
+            ("output", output.len(), output_stride),
+        ] {
+            assert!(stride >= bgra_row, "{name} stride shorter than a row");
+            assert!(len >= self.height * stride, "{name} frame size");
+        }
+        let row_bytes = self.row_bytes();
+        let mut rgb_in = std::mem::take(&mut self.bgra_rgb_in);
+        let mut rgb_out = std::mem::take(&mut self.bgra_rgb_out);
+        rgb_in.resize(self.frame_bytes(), 0);
+        rgb_out.resize(self.frame_bytes(), 0);
+        for (y, rgb_row) in rgb_in.chunks_exact_mut(row_bytes).enumerate() {
+            let start = y * input_stride;
+            let (bgra, _) = input[start..start + bgra_row].as_chunks::<4>();
+            let (rgb, _) = rgb_row.as_chunks_mut::<3>();
+            for (&[b, g, r, _], rgb) in bgra.iter().zip(rgb) {
+                *rgb = [r, g, b];
+            }
+        }
+        self.process(effects, frame_num, &rgb_in, &mut rgb_out);
+        for (y, rgb_row) in rgb_out.chunks_exact(row_bytes).enumerate() {
+            let (in_start, out_start) = (y * input_stride, y * output_stride);
+            let (alpha, _) = input[in_start..in_start + bgra_row].as_chunks::<4>();
+            let (bgra, _) = output[out_start..out_start + bgra_row].as_chunks_mut::<4>();
+            let (rgb, _) = rgb_row.as_chunks::<3>();
+            for ((&[r, g, b], source), bgra) in rgb.iter().zip(alpha).zip(bgra) {
+                *bgra = [b, g, r, source[3]];
+            }
+        }
+        self.bgra_rgb_in = rgb_in;
+        self.bgra_rgb_out = rgb_out;
     }
 
     fn apply_ntsc(
@@ -394,6 +445,38 @@ mod tests {
                     "{chain:?} padding written"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn bgra_processing_matches_rgb_and_keeps_alpha() {
+        let (w, h) = (64, 48);
+        let rgb = test_frame(w, h);
+        let mut bgra = vec![0u8; w * h * 4];
+        for (i, (&[r, g, b], px)) in rgb
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .zip(bgra.as_chunks_mut::<4>().0)
+            .enumerate()
+        {
+            *px = [b, g, r, (i % w) as u8];
+        }
+        let effect = inverted();
+        let expected = {
+            let mut fp = FrameProcessor::new(w, h, ChainLayout::default());
+            let mut out = vec![0u8; fp.frame_bytes()];
+            fp.process(&effect, 5, &rgb, &mut out);
+            out
+        };
+        let mut fp = FrameProcessor::new(w, h, ChainLayout::default());
+        let mut out = vec![0u8; w * h * 4];
+        fp.process_bgra(&effect, 5, &bgra, w * 4, &mut out, w * 4);
+        let (expected, _) = expected.as_chunks::<3>();
+        let (got, _) = out.as_chunks::<4>();
+        for (i, (&[r, g, b], &[ob, og, or, oa])) in expected.iter().zip(got).enumerate() {
+            assert_eq!([ob, og, or], [b, g, r], "pixel {i}");
+            assert_eq!(oa, (i % w) as u8, "alpha {i}");
         }
     }
 }

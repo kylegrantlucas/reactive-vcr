@@ -4,6 +4,18 @@ All notable changes to reactive-vcr appear here. This project follows [Semantic 
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-18
+
+### Added
+
+- `stream` command: live video from any GStreamer source (the camera by default) through the effect in real time, driven by live audio (the microphone by default), shown in a window or sent to any GStreamer sink, with live mapping reload.
+- OBS Studio plugin (OBS 30 or newer; macOS Apple Silicon, Linux x86_64 and arm64, Windows x64): a **reactive-vcr** video filter for any source, driven by an OBS audio source you pick. It is GPL-2.0-or-later because it links libobs; the rest of the project stays MIT.
+- Core: `live::LiveProgram` and `live::LiveAnalyzer` for causal live analysis (a trailing 2048-sample window, levels normalized over the last 10 seconds, onsets one frame late), `watch::MappingWatcher` for hot reload, and `FrameProcessor::process_bgra`, which keeps each pixel's alpha.
+
+### Changed
+
+- Core API: `Modulator` owns its state. `Modulator::new` no longer takes a feature timeline, `step` takes a closure that yields each source's value, and `effect` replaces `effect_for_frame`. Offline output is unchanged.
+
 ## [0.4.1] - 2026-10-17
 
 ### Added
@@ -75,7 +87,8 @@ All notable changes to reactive-vcr appear here. This project follows [Semantic 
 - Public showcase with eight reproducible treatments.
 - Apple Silicon macOS and x86_64 Linux release archives.
 
-[Unreleased]: https://github.com/kylegrantlucas/reactive-vcr/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/kylegrantlucas/reactive-vcr/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/kylegrantlucas/reactive-vcr/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/kylegrantlucas/reactive-vcr/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/kylegrantlucas/reactive-vcr/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/kylegrantlucas/reactive-vcr/compare/v0.2.0...v0.3.0
