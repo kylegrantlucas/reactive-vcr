@@ -47,9 +47,17 @@ macos-bundle DEST="target/macos":
     scripts/macos-bundle.sh {{DEST}}
 
 # Rebuild every video and the complete static site.
-showcase:
+showcase: showcase-wasm
     cargo build --release --locked -p reactive-vcr-cli
     python3 demo/generate.py build
+
+# Build the live demo's WebAssembly engine.
+showcase-wasm:
+    cargo build --release --locked -p reactive-vcr-wasm --target wasm32-unknown-unknown
+
+# Refresh the page, scripts, and engine of an existing target/demo-site without rerendering video.
+showcase-site: showcase-wasm
+    python3 demo/generate.py site
 
 # Recheck an existing target/demo-site without rerendering it.
 showcase-check:

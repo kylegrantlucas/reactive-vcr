@@ -1,0 +1,4 @@
+# ntsc-rs's chroma path is only correct with WebAssembly SIMD; every current
+# browser supports simd128.
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "target-feature=+simd128"]

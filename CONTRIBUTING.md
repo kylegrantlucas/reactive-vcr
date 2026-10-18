@@ -4,7 +4,7 @@ Thanks for improving reactive-vcr. Focused bug fixes, performance improvements, 
 
 ## Set up
 
-Install a current stable Rust toolchain, GStreamer with its development headers and the base, good, bad, ugly and libav plugin sets, FFmpeg (used by the showcase generator), Python 3, and [just](https://just.systems/). `nix develop` provides all of them. Then clone the repository and run:
+Install a current stable Rust toolchain with the `wasm32-unknown-unknown` target (for the showcase's live deck), GStreamer with its development headers and the base, good, bad, ugly and libav plugin sets, FFmpeg (used by the showcase generator), Python 3, and [just](https://just.systems/). `nix develop` provides all of them. Then clone the repository and run:
 
 ```sh
 just build

@@ -28,6 +28,7 @@ jobs:
         uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # stable
         with:
           toolchain: stable
+          targets: wasm32-unknown-unknown
 
       # The demo generator uses ffmpeg to synthesize clips, reels and posters;
       # the reactive-vcr CLI it calls renders through GStreamer.
@@ -43,6 +44,9 @@ jobs:
 
       - name: Build reactive-vcr
         run: cargo build --release --locked -p reactive-vcr-cli
+
+      - name: Build the live demo engine
+        run: cargo build --release --locked -p reactive-vcr-wasm --target wasm32-unknown-unknown
 
       - name: Build and verify demo
         run: >-

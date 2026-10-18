@@ -16,12 +16,14 @@
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
   <script src="app.js" defer></script>
+  <script src="live.js" type="module"></script>
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
   <header class="site-header">
     <a class="wordmark" href="#top" aria-label="reactive-vcr home"><span>REACTIVE</span><i>/</i><span>VCR</span></a>
     <nav aria-label="Primary navigation">
+      <a href="#live">Try it live</a>
       <a href="#how">How it works</a>
       <a href="#app">Desktop app</a>
       <a href="#showcase">Showcase</a>
@@ -38,7 +40,7 @@
         <p class="lede">reactive-vcr maps bass, frequency bands, and transients to more than sixty ntsc-rs controls and every bender-rs circuit bend—frame by frame, from a readable TOML file. Tune the look live in the desktop app, then render.</p>
         <div class="actions">
           <a class="button primary" href="https://github.com/kylegrantlucas/reactive-vcr/releases/latest">Download v0.4.0</a>
-          <a class="button secondary" href="https://github.com/kylegrantlucas/reactive-vcr">View source</a>
+          <a class="button secondary" href="#live">Try it live</a>
         </div>
         <p class="platform-note">Apple Silicon macOS · x86_64 and arm64 Linux · MIT</p>
       </div>
@@ -55,6 +57,54 @@
     <div class="signal-strip" aria-hidden="true">
       <span>RMS LEVEL</span><b></b><span>BASS ENERGY</span><b></b><span>SPECTRAL FLUX</span><b></b><span>FRAME-ACCURATE</span>
     </div>
+
+    <section class="section live" id="live" aria-labelledby="live-title">
+      <div class="section-heading compact">
+        <div><p class="eyebrow">LIVE / IN YOUR BROWSER</p><h2 id="live-title">Patch it live.</h2></div>
+        <p>The same Rust engine, compiled to WebAssembly, analyzes the soundtrack and bends every frame on your machine while it plays. Bring your own video, song, or camera; nothing is uploaded.</p>
+      </div>
+      <div class="live-deck">
+        <div class="live-main">
+          <div class="tape-window">
+            <div class="deck-label"><span id="live-label">LIVE DECK</span><span id="live-time">00:00</span></div>
+            <div class="video-frame live-frame" id="live-frame">
+              <img class="live-poster" id="live-poster" src="posters/08-meltdown.jpg" alt="">
+              <canvas id="live-preview" hidden aria-label="Live reactive-vcr preview"></canvas>
+              <button class="load-video" type="button" id="live-start"><span>▶</span> Start the live deck</button>
+            </div>
+            <div class="live-transport">
+              <button type="button" id="live-play" disabled>Play</button>
+              <button type="button" id="live-hold" disabled>Hold to see original</button>
+              <label>Lines <select id="live-lines"><option>240</option><option selected>360</option><option>480</option></select></label>
+            </div>
+          </div>
+          <p class="live-status" id="live-status" role="status">Drop a video or a song on the picture, or choose them under Picture and Sound.</p>
+        </div>
+        <aside class="live-panel" aria-label="Live deck inputs">
+          <fieldset>
+            <legend>Picture</legend>
+            <label><input type="radio" name="live-picture" value="demo" checked> Demo clip</label>
+            <label><input type="radio" name="live-picture" value="camera"> Camera</label>
+            <label><input type="radio" name="live-picture" value="file"> Your video…</label>
+            <input type="file" id="live-video-file" accept="video/*" hidden>
+          </fieldset>
+          <fieldset>
+            <legend>Sound</legend>
+            <label><input type="radio" name="live-sound" value="demo" checked> Demo beat</label>
+            <label><input type="radio" name="live-sound" value="file"> Your song…</label>
+            <label><input type="radio" name="live-sound" value="video" disabled> Your video's sound</label>
+            <input type="file" id="live-audio-file" accept="audio/*,video/*" hidden>
+          </fieldset>
+          <div class="live-presets">
+            <p class="eyebrow">PRESET BANK</p>
+            <ul>
+              {{LIVE_PRESETS}}
+            </ul>
+            <a class="text-link" id="live-map-link" href="maps/">View this mapping →</a>
+          </div>
+        </aside>
+      </div>
+    </section>
 
     <section class="section how" id="how" aria-labelledby="how-title">
       <div class="section-heading">
