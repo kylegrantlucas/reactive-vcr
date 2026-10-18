@@ -19,6 +19,8 @@ pub enum Command {
     Render(RenderArgs),
     /// Play a video in real time with the effect modulated by an audio file.
     Play(PlayArgs),
+    /// Process live video in real time with the effect driven by live audio.
+    Stream(StreamArgs),
     /// Dump per-frame audio features and resulting parameter values as CSV.
     Analyze(AnalyzeArgs),
     /// List every ntsc-rs and bender-rs parameter that can be targeted.
@@ -126,4 +128,28 @@ pub struct AnalyzeArgs {
     pub start: Option<f64>,
     #[arg(long)]
     pub duration: Option<f64>,
+}
+
+#[derive(clap::Args, Debug)]
+pub struct StreamArgs {
+    /// Mapping file; edits to it and its presets apply while streaming.
+    #[arg(long)]
+    pub map: PathBuf,
+    /// GStreamer video source, as a gst-launch description.
+    #[arg(long, default_value = "autovideosrc")]
+    pub video_source: String,
+    /// GStreamer audio source that drives the effect, as a gst-launch description.
+    #[arg(long, default_value = "autoaudiosrc")]
+    pub audio_source: String,
+    /// Processing height in lines; width follows the source's aspect ratio.
+    #[arg(long, default_value_t = 480, value_parser = clap::value_parser!(u32).range(2..=2160))]
+    pub lines: u32,
+    /// GStreamer video sink, as a gst-launch description.
+    #[arg(long, default_value = "autovideosink")]
+    pub video_sink: String,
+    /// GStreamer audio sink; the default discards audio so a microphone can't feed back.
+    #[arg(long, default_value = "fakesink")]
+    pub audio_sink: String,
+    #[arg(short, long)]
+    pub quiet: bool,
 }

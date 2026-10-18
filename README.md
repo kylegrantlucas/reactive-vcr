@@ -6,7 +6,7 @@
 
 Make analog damage move to the music.
 
-`reactive-vcr` applies an [ntsc-rs](https://github.com/valadaptive/ntsc-rs) VHS/NTSC effect and [bender-rs](https://github.com/kylegrantlucas/bender-rs) circuit bends whose settings respond to an audio file. A declarative TOML mapping connects RMS level, named frequency bands, and onset events to any supported ntsc-rs or bender-rs setting.
+`reactive-vcr` applies an [ntsc-rs](https://github.com/valadaptive/ntsc-rs) VHS/NTSC effect and [bender-rs](https://github.com/kylegrantlucas/bender-rs) circuit bends whose settings respond to music: a song you render against, or live sound from a microphone or your OBS stream. A declarative TOML mapping connects RMS level, named frequency bands, and onset events to any supported ntsc-rs or bender-rs setting.
 
 **[Watch the full interactive showcase](https://kylegrantlucas.github.io/reactive-vcr/)**: one clean source, eleven treatments, an original synthesized soundtrack, and a live deck that runs the effect in your browser on your own video, song, or camera.
 
@@ -15,9 +15,10 @@ Make analog damage move to the music.
 | Component | What it does |
 |---|---|
 | `reactive-vcr.app` / `reactive-vcr-gui` | Desktop app. Drop in a video and a song, watch the effect react with sound, shape the mapping with controls, save it, and render. |
-| `reactive-vcr` | Command line: `render`, real-time `play`, `analyze`, and `params`. |
-| `reactive-vcr` crate | The effect core: audio features, mappings, modulation, and the ntsc-rs/bender-rs frame processor. |
-| `reactive-vcr-gst` crate | [GStreamer](https://gstreamer.freedesktop.org/) decoding, preview, playback, and rendering. |
+| `reactive-vcr` | Command line: `render` a video, `play` it in real time, or `stream` your camera live with your microphone driving the effect. Also `analyze` and `params`. |
+| OBS Studio plugin | Puts the effect on your stream. Add the **reactive-vcr** filter to a webcam, game capture, or any other source, and your mic or music drives it as you broadcast. |
+| `reactive-vcr` crate | The effect core: audio features, live analysis, mappings, modulation, and the ntsc-rs/bender-rs frame processor. |
+| `reactive-vcr-gst` crate | [GStreamer](https://gstreamer.freedesktop.org/) decoding, preview, playback, streaming, and rendering. |
 
 ## Install
 
@@ -25,7 +26,7 @@ Download the latest archive for your platform from [GitHub Releases](https://git
 
 ### macOS (Apple Silicon)
 
-`reactive-vcr-v0.4.0-aarch64-apple-darwin.tar.gz` contains `reactive-vcr.app` with GStreamer bundled inside, so nothing else needs installing. Move the app to `/Applications`. The app is ad-hoc signed, not notarized. If Gatekeeper blocks it, remove the download quarantine:
+`reactive-vcr-v0.5.0-aarch64-apple-darwin.tar.gz` contains `reactive-vcr.app` with GStreamer bundled inside, so nothing else needs installing. Move the app to `/Applications`. The app is ad-hoc signed, not notarized. If Gatekeeper blocks it, remove the download quarantine:
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/reactive-vcr.app
@@ -41,7 +42,7 @@ ln -s /Applications/reactive-vcr.app/Contents/MacOS/reactive-vcr /usr/local/bin/
 
 ### Linux (x86_64 and arm64)
 
-`reactive-vcr-v0.4.0-<arch>-unknown-linux-gnu.tar.gz` contains `reactive-vcr` and `reactive-vcr-gui` for glibc 2.35 or newer. They use the system GStreamer:
+`reactive-vcr-v0.5.0-<arch>-unknown-linux-gnu.tar.gz` contains `reactive-vcr` and `reactive-vcr-gui` for glibc 2.35 or newer. They use the system GStreamer:
 
 ```sh
 sudo apt install gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
@@ -59,6 +60,16 @@ cargo install --locked --path crates/reactive-vcr-cli
 cargo install --locked --path crates/reactive-vcr-gui
 ```
 
+### OBS Studio plugin
+
+Put reactive-vcr on your stream with the plugin for OBS Studio 30 or newer on macOS (Apple Silicon), Windows (x64), and Linux (x86_64 and arm64). Download `reactive-vcr-obs-v0.5.0-<target>.tar.gz` for your system (`.zip` on Windows). The plugin brings its own copy of the effect, so there is nothing else to install.
+
+- macOS: move `reactive-vcr.plugin` to `~/Library/Application Support/obs-studio/plugins/`. It is ad-hoc signed; if OBS will not load it, run `xattr -dr com.apple.quarantine` on the moved plugin.
+- Linux: copy the `reactive-vcr` folder to `~/.config/obs-studio/plugins/`.
+- Windows: copy the `reactive-vcr` folder to `C:\ProgramData\obs-studio\plugins\`.
+
+From source, `just obs-install` builds the plugin and installs it for the current user on macOS or Linux.
+
 ## Desktop app
 
 Open `reactive-vcr.app`, or run `reactive-vcr-gui [video] [audio] [mapping.toml]`.
@@ -69,6 +80,28 @@ Open `reactive-vcr.app`, or run `reactive-vcr-gui [video] [audio] [mapping.toml]
 4. **Save mapping…** writes the TOML file the command line uses, and **Render…** writes an H.264 MP4 or a lossless FFV1 MKV in the background.
 
 The app remembers the current mapping and its settings between launches.
+
+## Go live
+
+reactive-vcr also runs live. Point a camera at the stage and let the room drive the tape: with the included mapping, the picture tears on the kick and fills with snow when the crowd gets loud. Mappings are the same files everywhere, so a look you tuned in the desktop app goes straight on air.
+
+### On your stream, in OBS
+
+Install the [OBS plugin](#obs-studio-plugin), then add the **reactive-vcr** filter to any source, such as a webcam, a game capture, a screen share, or a media clip. Choose a **Mapping file** and the **Audio source** that drives it, whether that is your mic, the music bed, or desktop audio, and the effect plays along with your show.
+
+Change looks mid-show by saving the mapping: the new treatment appears within a quarter second and the stream never stops. If an edit has a mistake, the filter keeps the last good look and shows the problem in its properties. **Processing lines** trades sharpness for speed, and 480 is a good place to start. Mute the driving audio, or set it to None, and the picture settles into its quiet look. Overlays with transparency keep it.
+
+### From a camera and a microphone
+
+```sh
+reactive-vcr stream --map examples/basic.toml
+```
+
+This opens a window with your camera running through the deck and your microphone driving it. Clap and watch it answer. Edit the mapping while it runs and the look changes live; press Q to stop. On macOS, the first run asks for camera and microphone access.
+
+Any camera, microphone, or feed that GStreamer can open works as an input, and the result can go to a window or any GStreamer sink: see `--video-source`, `--audio-source`, `--video-sink`, and `--lines` (480 by default) under [Commands](#commands). The driving audio is not played back unless you set `--audio-sink`, so a microphone cannot feed back.
+
+Live mode reacts to what it has just heard and cannot look ahead the way `render` does. Levels adapt to the last 10 seconds of sound, and hits register one frame after they land.
 
 ## Command line
 
@@ -125,6 +158,10 @@ reactive-vcr play    --video in.mp4 --audio song.wav --map fx.toml
                      [--preview 0.5] [--start 12.0] [--duration 20.0]
                      [--audio-mode mix|driving|original|none] [--loop]
                      [--video-sink autovideosink] [--audio-sink autoaudiosink]
+
+reactive-vcr stream  --map fx.toml [--lines 480]
+                     [--video-source autovideosrc] [--audio-source autoaudiosrc]
+                     [--video-sink autovideosink] [--audio-sink fakesink] [--quiet]
 
 reactive-vcr analyze --audio song.wav --fps 29.97 --map fx.toml -o features.csv
                      [--start S] [--duration D]
@@ -220,12 +257,14 @@ just test                     # Rust tests and the showcase generator's tests
 just lint                     # clippy -D warnings and rustfmt
 just gui [video audio map]    # run the desktop app
 just cli render ...           # run the command line
+just stream --map fx.toml     # stream camera and microphone through the effect
+just obs-install              # build the OBS plugin and install it for this user
 just macos-bundle             # macOS: build target/macos/reactive-vcr.app with GStreamer bundled (run outside nix develop)
 ```
 
 ### Releasing
 
-Bump `[workspace.package] version` in `Cargo.toml`, add the release to `CHANGELOG.md`, merge, then push a matching tag (`git tag v0.4.0 && git push origin v0.4.0`). The release workflow builds the macOS app and the Linux archives and publishes them with `SHA256SUMS`. Run the workflow manually for a dry run that uploads the archives without publishing.
+Bump `[workspace.package] version` in `Cargo.toml`, add the release to `CHANGELOG.md`, merge, then push a matching tag (`git tag v0.5.0 && git push origin v0.5.0`). The release workflow builds the macOS app, the Linux archives, and the OBS plugin for macOS, Linux, and Windows, and publishes them with `SHA256SUMS`. Run the workflow manually for a dry run that uploads the archives without publishing.
 
 ## Contributing
 
@@ -234,3 +273,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Please report security issues through th
 ## License
 
 reactive-vcr is licensed under the [MIT License](LICENSE). It uses the ntsc-rs core under ntsc-rs's MIT option and the bender-rs core under its MIT option. Release archives include notices for all Rust dependencies, and the macOS app includes the notice for its bundled GStreamer runtime.
+
+The OBS plugin (`crates/reactive-vcr-obs`) links libobs and is licensed under the [GNU GPL, version 2 or later](crates/reactive-vcr-obs/COPYING); its archives include that license. The rest of the project stays MIT.

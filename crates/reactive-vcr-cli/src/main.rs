@@ -11,6 +11,7 @@ use reactive_vcr_gst::decode::decode_mono_f32;
 use reactive_vcr_gst::play::{PlayOptions, play};
 use reactive_vcr_gst::probe::probe;
 use reactive_vcr_gst::render::{OutputCodec, RenderJob, RenderSettings, RenderStatus};
+use reactive_vcr_gst::stream::{StreamOptions, stream};
 use reactive_vcr_gst::{AudioMode, Program};
 use std::io::Write as _;
 use std::sync::Arc;
@@ -42,6 +43,22 @@ fn run(cli: Cli) -> Result<()> {
             })?;
             if !quiet {
                 eprintln!("played {} frames", summary.frames);
+            }
+            Ok(())
+        }
+        Command::Stream(args) => {
+            let quiet = args.quiet;
+            let summary = stream(&StreamOptions {
+                map: args.map,
+                video_source: args.video_source,
+                audio_source: args.audio_source,
+                lines: args.lines,
+                video_sink: args.video_sink,
+                audio_sink: args.audio_sink,
+                quiet,
+            })?;
+            if !quiet {
+                eprintln!("streamed {} frames", summary.frames);
             }
             Ok(())
         }

@@ -256,11 +256,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let input = dir.path().join("in.mp4");
         std::fs::write(&input, "keep").unwrap();
-        let link = dir.path().join("link.mp4");
-        std::fs::hard_link(&input, &link).unwrap();
         let fresh = dir.path().join("out.mp4");
         assert!(validate_output_is_distinct(&fresh, &[("video", &input)]).is_ok());
-        for output in [&input, &link] {
+        let mut aliases = vec![input.clone()];
+        // Hard links are only detected on Unix, where `paths_alias` compares inodes.
+        if cfg!(unix) {
+            let link = dir.path().join("link.mp4");
+            std::fs::hard_link(&input, &link).unwrap();
+            aliases.push(link);
+        }
+        for output in &aliases {
             let error = validate_output_is_distinct(output, &[("video", &input)]).unwrap_err();
             assert!(format!("{error:#}").contains("aliases video input"));
         }

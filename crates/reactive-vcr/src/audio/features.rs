@@ -143,15 +143,16 @@ mod tests {
     }
 }
 use crate::mapping::{Normalize, Source};
-use realfft::RealFftPlanner;
+use realfft::{RealFftPlanner, RealToComplex, num_complex::Complex};
+use std::sync::Arc;
 
 /// Mono analysis sample rate; decoders resample to it.
 pub const SAMPLE_RATE: u32 = 48_000;
 pub const FFT_SIZE: usize = 2048;
 const DB_WINDOW: f32 = 60.0;
-const DB_FLOOR: f32 = -120.0;
-const ONSET_MIN_GAP: usize = 3;
-const ONSET_CONTEXT: usize = 10;
+pub(crate) const DB_FLOOR: f32 = -120.0;
+pub(crate) const ONSET_MIN_GAP: usize = 3;
+pub(crate) const ONSET_CONTEXT: usize = 10;
 
 #[derive(Debug, Clone)]
 pub struct FeatureParams {
@@ -208,6 +209,11 @@ fn db_power(power: f32) -> f32 {
 
 /// Reference level in dB for a feature: its peak or the given percentile.
 pub fn reference_db(db: &[f32], mode: Normalize) -> f32 {
+    reference_db_with(db, mode, &mut Vec::new())
+}
+
+/// [`reference_db`], sorting in `scratch` so repeated calls reuse one allocation.
+pub(crate) fn reference_db_with(db: &[f32], mode: Normalize, scratch: &mut Vec<f32>) -> f32 {
     if db.is_empty() {
         return DB_FLOOR;
     }
@@ -215,10 +221,11 @@ pub fn reference_db(db: &[f32], mode: Normalize) -> f32 {
     match mode {
         Normalize::Peak => peak,
         Normalize::Percentile(percentile) => {
-            let mut sorted = db.to_vec();
-            sorted.sort_by(|a, b| a.total_cmp(b));
-            let index = ((percentile / 100.0) * (sorted.len() - 1) as f32).round() as usize;
-            let reference = sorted[index.min(sorted.len() - 1)];
+            scratch.clear();
+            scratch.extend_from_slice(db);
+            scratch.sort_by(|a, b| a.total_cmp(b));
+            let index = ((percentile / 100.0) * (scratch.len() - 1) as f32).round() as usize;
+            let reference = scratch[index.min(scratch.len() - 1)];
             // A mostly silent stream can put the percentile at the digital floor.
             // Preserve its actual bursts while keeping genuinely silent streams at zero.
             if reference <= DB_FLOOR && peak > reference {
@@ -230,20 +237,18 @@ pub fn reference_db(db: &[f32], mode: Normalize) -> f32 {
     }
 }
 
+/// Map one dB value to 0..1 over a 60 dB window below `reference`.
+pub fn normalize_db_value(value: f32, reference: f32) -> f32 {
+    if reference <= DB_FLOOR || value <= DB_FLOOR {
+        return 0.0;
+    }
+    ((value - (reference - DB_WINDOW)) / DB_WINDOW).clamp(0.0, 1.0)
+}
+
 /// Map dB values to 0..1 over a 60 dB window below `reference`.
 pub fn normalize_db_with(db: &[f32], reference: f32) -> Vec<f32> {
-    if reference <= DB_FLOOR {
-        return vec![0.0; db.len()];
-    }
-    let floor = reference - DB_WINDOW;
     db.iter()
-        .map(|value| {
-            if *value <= DB_FLOOR {
-                0.0
-            } else {
-                ((value - floor) / DB_WINDOW).clamp(0.0, 1.0)
-            }
-        })
+        .map(|value| normalize_db_value(*value, reference))
         .collect()
 }
 
@@ -273,61 +278,106 @@ fn pick_onsets(flux: &[f32], sensitivity: f32) -> Vec<f32> {
     onsets
 }
 
+/// Per-frame spectral analysis shared by offline extraction and live input.
+pub(crate) struct SpectralFrame {
+    fft: Arc<dyn RealToComplex<f32>>,
+    window: Vec<f32>,
+    input: Vec<f32>,
+    spectrum: Vec<Complex<f32>>,
+    magnitudes: Vec<f32>,
+    previous_magnitudes: Vec<f32>,
+    bin_hz: f32,
+}
+
+impl SpectralFrame {
+    pub(crate) fn new(sample_rate: u32) -> Self {
+        let mut planner = RealFftPlanner::<f32>::new();
+        let fft = planner.plan_fft_forward(FFT_SIZE);
+        let input = fft.make_input_vec();
+        let spectrum = fft.make_output_vec();
+        let window = (0..FFT_SIZE)
+            .map(|index| {
+                0.5 - 0.5 * (2.0 * std::f32::consts::PI * index as f32 / FFT_SIZE as f32).cos()
+            })
+            .collect();
+        let bins = spectrum.len();
+        Self {
+            fft,
+            window,
+            input,
+            spectrum,
+            magnitudes: vec![0.0; bins],
+            previous_magnitudes: vec![0.0; bins],
+            bin_hz: sample_rate as f32 / FFT_SIZE as f32,
+        }
+    }
+
+    /// Analyze one window; `sample(i)` yields window sample `i` in `0..FFT_SIZE`.
+    /// Writes each band's power in dB to `band_db` and returns `(rms_db, spectral flux)`.
+    pub(crate) fn analyze(
+        &mut self,
+        sample: impl Fn(usize) -> f32,
+        bands: &[[f32; 2]],
+        band_db: &mut [f32],
+    ) -> (f32, f32) {
+        let mut sum_of_squares = 0.0;
+        for index in 0..FFT_SIZE {
+            let sample = sample(index);
+            sum_of_squares += sample * sample;
+            self.input[index] = sample * self.window[index];
+        }
+        let rms_db = 20.0 * (sum_of_squares / FFT_SIZE as f32).sqrt().max(1e-6).log10();
+
+        self.fft
+            .process(&mut self.input, &mut self.spectrum)
+            .expect("FFT input and output sizes match");
+        for (index, value) in self.spectrum.iter().enumerate() {
+            self.magnitudes[index] = value.norm();
+        }
+        for (band_index, [low_hz, high_hz]) in bands.iter().enumerate() {
+            let first_bin = (low_hz / self.bin_hz).ceil() as usize;
+            let end_bin = ((high_hz / self.bin_hz).ceil() as usize).min(self.magnitudes.len());
+            let start_bin = first_bin.min(end_bin);
+            let power = self.magnitudes[start_bin..end_bin]
+                .iter()
+                .map(|magnitude| magnitude * magnitude)
+                .sum();
+            band_db[band_index] = db_power(power);
+        }
+        let flux = self
+            .magnitudes
+            .iter()
+            .zip(&self.previous_magnitudes)
+            .map(|(current, previous)| (current - previous).max(0.0))
+            .sum();
+        std::mem::swap(&mut self.magnitudes, &mut self.previous_magnitudes);
+        (rms_db, flux)
+    }
+}
+
 pub fn extract(samples: &[f32], sample_rate: u32, p: &FeatureParams) -> FeatureTimeline {
-    let mut planner = RealFftPlanner::<f32>::new();
-    let fft = planner.plan_fft_forward(FFT_SIZE);
-    let mut input = fft.make_input_vec();
-    let mut spectrum = fft.make_output_vec();
-    let window: Vec<f32> = (0..FFT_SIZE)
-        .map(|index| {
-            0.5 - 0.5 * (2.0 * std::f32::consts::PI * index as f32 / FFT_SIZE as f32).cos()
-        })
-        .collect();
-    let bin_hz = sample_rate as f32 / FFT_SIZE as f32;
+    let mut spectral = SpectralFrame::new(sample_rate);
     let mut rms_db = vec![DB_FLOOR; p.frames];
     let mut band_db = vec![vec![DB_FLOOR; p.frames]; p.bands.len()];
     let mut flux = vec![0.0; p.frames];
-    let mut previous_magnitudes = vec![0.0; spectrum.len()];
-    let mut magnitudes = vec![0.0; spectrum.len()];
+    let mut frame_band_db = vec![DB_FLOOR; p.bands.len()];
 
     for frame in 0..p.frames {
         let center =
             (((frame as f64 + 0.5) / p.fps + p.start_s) * sample_rate as f64).round() as i64;
         let start = center - (FFT_SIZE / 2) as i64;
-        let mut sum_of_squares = 0.0;
-        for index in 0..FFT_SIZE {
+        let sample = |index: usize| {
             let sample_index = start + index as i64;
-            let sample = if sample_index >= 0 && (sample_index as usize) < samples.len() {
+            if sample_index >= 0 && (sample_index as usize) < samples.len() {
                 samples[sample_index as usize]
             } else {
                 0.0
-            };
-            sum_of_squares += sample * sample;
-            input[index] = sample * window[index];
+            }
+        };
+        (rms_db[frame], flux[frame]) = spectral.analyze(sample, &p.bands, &mut frame_band_db);
+        for (band, value) in band_db.iter_mut().zip(&frame_band_db) {
+            band[frame] = *value;
         }
-        rms_db[frame] = 20.0 * (sum_of_squares / FFT_SIZE as f32).sqrt().max(1e-6).log10();
-
-        fft.process(&mut input, &mut spectrum)
-            .expect("FFT input and output sizes match");
-        for (index, value) in spectrum.iter().enumerate() {
-            magnitudes[index] = value.norm();
-        }
-        for (band_index, [low_hz, high_hz]) in p.bands.iter().enumerate() {
-            let first_bin = (low_hz / bin_hz).ceil() as usize;
-            let end_bin = ((high_hz / bin_hz).ceil() as usize).min(magnitudes.len());
-            let start_bin = first_bin.min(end_bin);
-            let power = magnitudes[start_bin..end_bin]
-                .iter()
-                .map(|magnitude| magnitude * magnitude)
-                .sum();
-            band_db[band_index][frame] = db_power(power);
-        }
-        flux[frame] = magnitudes
-            .iter()
-            .zip(&previous_magnitudes)
-            .map(|(current, previous)| (current - previous).max(0.0))
-            .sum();
-        std::mem::swap(&mut magnitudes, &mut previous_magnitudes);
     }
 
     let band_reference = reference_db(&band_db.concat(), p.normalize);

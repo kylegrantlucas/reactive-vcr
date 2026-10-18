@@ -5,23 +5,23 @@
 use crate::decode::decode_mono_f32;
 use crate::filter::{KEY_MESSAGE, Program, ReactiveFilter, VIDEO_EOS_MESSAGE};
 use crate::media::{
-    AudioMode, add_source, audio_inputs, error_text, make, seek_range, sink, video_chain, wait_for,
+    AudioMode, add_source, audio_inputs, error_text, is_window_closed, make, seek_range, sink,
+    video_chain, wait_for,
 };
 use crate::probe::probe;
 use anyhow::{Context as _, Result, anyhow};
 use gstreamer as gst;
 use gstreamer::prelude::*;
-use reactive_vcr::mapping;
+use reactive_vcr::mapping::CompiledMapping;
 use reactive_vcr::params::ParamCatalog;
 use reactive_vcr::timeline::{FeatureCache, Selection, select_timeline};
-use std::path::{Path, PathBuf};
+use reactive_vcr::watch::MappingWatcher;
+use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime};
 
 const SEEK_STEP: gst::ClockTime = gst::ClockTime::from_seconds(5);
-const BUS_POLL: gst::ClockTime = gst::ClockTime::from_mseconds(100);
+pub(crate) const BUS_POLL: gst::ClockTime = gst::ClockTime::from_mseconds(100);
 const PREROLL_TIMEOUT: gst::ClockTime = gst::ClockTime::from_seconds(30);
-const RELOAD_INTERVAL: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Clone)]
 pub struct PlayOptions {
@@ -73,43 +73,32 @@ pub fn play(o: &PlayOptions) -> Result<PlaySummary> {
     player.run(&mut programs, o.quiet)
 }
 
-type Stamp = Option<(SystemTime, u64)>;
-
-fn stamp(path: &Path) -> Stamp {
-    let metadata = std::fs::metadata(path).ok()?;
-    Some((metadata.modified().ok()?, metadata.len()))
-}
-
 /// Builds programs from the mapping and rebuilds them when it or its presets change.
 struct ProgramSource {
-    map: PathBuf,
+    watcher: MappingWatcher,
     catalog: Arc<ParamCatalog>,
     samples: Vec<f32>,
     selection: Selection,
     features: FeatureCache,
-    watched: Vec<(PathBuf, Stamp)>,
-    last_check: Instant,
 }
 
 impl ProgramSource {
     fn new(map: PathBuf, samples: Vec<f32>, selection: Selection) -> Self {
         Self {
-            map,
+            watcher: MappingWatcher::new(map),
             catalog: Arc::new(ParamCatalog::new()),
             samples,
             selection,
             features: FeatureCache::default(),
-            watched: Vec::new(),
-            last_check: Instant::now(),
         }
     }
 
     fn load(&mut self) -> Result<Arc<Program>> {
-        let map = mapping::load(&self.map, &self.catalog)?;
-        self.watched = std::iter::once(self.map.as_path())
-            .chain(map.preset_inputs().into_iter().map(|(_, path)| path))
-            .map(|path| (path.to_path_buf(), stamp(path)))
-            .collect();
+        let map = self.watcher.load(&self.catalog)?;
+        self.build(map)
+    }
+
+    fn build(&mut self, map: CompiledMapping) -> Result<Arc<Program>> {
         let features = self
             .features
             .features(&self.samples, &map, &self.selection)?;
@@ -124,24 +113,14 @@ impl ProgramSource {
     /// A rebuilt program once any watched file changes. A failed load is reported once and
     /// retried after the next change.
     fn poll(&mut self) -> Option<Result<Arc<Program>>> {
-        if self.last_check.elapsed() < RELOAD_INTERVAL {
-            return None;
-        }
-        self.last_check = Instant::now();
-        let mut changed = false;
-        for (path, seen) in &mut self.watched {
-            let current = stamp(path);
-            if current != *seen {
-                *seen = current;
-                changed = true;
-            }
-        }
-        changed.then(|| self.load())
+        self.watcher
+            .poll(&self.catalog)
+            .map(|result| result.and_then(|map| self.build(map)))
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum Control {
+pub(crate) enum Control {
     TogglePause,
     Back,
     Forward,
@@ -150,7 +129,7 @@ enum Control {
 }
 
 /// Navigation key names, as video sinks report them (X11 keysym style).
-fn control_for(key: &str) -> Option<Control> {
+pub(crate) fn control_for(key: &str) -> Option<Control> {
     Some(match key {
         "space" | " " => Control::TogglePause,
         "Left" => Control::Back,
@@ -251,15 +230,6 @@ impl Player {
             .unwrap_or(self.start)
     }
 
-    /// Whether `error` is the video sink reporting that its window was closed.
-    fn is_window_closed(&self, error: &gst::message::Error) -> bool {
-        let from_video_sink = error.src().is_some_and(|source| {
-            source == self.video_sink.upcast_ref::<gst::Object>()
-                || source.has_as_ancestor(&self.video_sink)
-        });
-        from_video_sink && error.error().matches(gst::ResourceError::NotFound)
-    }
-
     fn set_state(&self, state: gst::State) -> Result<()> {
         self.pipeline
             .set_state(state)
@@ -286,7 +256,7 @@ impl Player {
         loop {
             if let Some(message) = bus.timed_pop(BUS_POLL) {
                 match message.view() {
-                    gst::MessageView::Error(error) if self.is_window_closed(error) => {
+                    gst::MessageView::Error(error) if is_window_closed(error, &self.video_sink) => {
                         return Ok(());
                     }
                     gst::MessageView::Error(error) => {
@@ -333,7 +303,7 @@ impl Player {
                         self.seek(self.position())?;
                     }
                     if !quiet {
-                        eprintln!("reloaded {}", programs.map.display());
+                        eprintln!("reloaded {}", programs.watcher.path().display());
                     }
                 }
                 Some(Err(error)) => {
