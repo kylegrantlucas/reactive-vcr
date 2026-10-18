@@ -68,6 +68,7 @@ jobs:
         with:
           toolchain: stable
           components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
 
       - name: Install GStreamer and windowing headers
         run: |
@@ -81,6 +82,9 @@ jobs:
 
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Run Clippy on the live demo engine (wasm32)
+        run: cargo clippy -p reactive-vcr-wasm --target wasm32-unknown-unknown --locked -- -D warnings
 
       - name: Test demo generator
         run: python3 -m unittest discover -s demo/tests -v

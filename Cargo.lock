@@ -3296,6 +3296,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "reactive-vcr-wasm"
+version = "0.4.0"
+dependencies = [
+ "anyhow",
+ "reactive-vcr",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "read-fonts"
 version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

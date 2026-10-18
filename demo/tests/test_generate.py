@@ -112,6 +112,7 @@ class SiteVerificationTests(unittest.TestCase):
                 (media / f"{slug}.mp4").touch()
                 (posters / f"{slug}.jpg").touch()
             (site / "index.html").write_text("<!doctype html><title>fixture</title>")
+            (site / generate.WASM_NAME).write_bytes(b"\0asm\x01\0\0\0")
             fake_probe = tools / "ffprobe"
             fake_probe.write_text(
                 f"#!{sys.executable}\n"
@@ -155,18 +156,22 @@ class SiteVerificationTests(unittest.TestCase):
             (source / "maps" / "01-look.toml").write_text("[audio]\n", encoding="utf-8")
             (source / "base.json").write_text("{}\n", encoding="utf-8")
             (source / "index.template.html").write_text(
-                "<html><body>{{SHOWCASE_CARDS}}</body></html>", encoding="utf-8"
+                "<html><body>{{SHOWCASE_CARDS}}<ul>{{LIVE_PRESETS}}</ul></body></html>", encoding="utf-8"
             )
-            for filename in ("styles.css", "app.js", "favicon.svg"):
+            for filename in generate.PUBLIC_FILES:
                 (source / filename).write_text(filename, encoding="utf-8")
+            wasm = root / "engine.wasm"
+            wasm.write_bytes(b"\0asm\x01\0\0\0")
             looks = [generate.Look("01-look", "Look", "Description")]
 
-            generate.assemble_site(source, site, looks)
+            generate.assemble_site(source, site, looks, wasm)
 
             self.assertIn("01-look", (site / "index.html").read_text(encoding="utf-8"))
             self.assertTrue((site / "maps" / "01-look.toml").is_file())
             self.assertEqual("{}\n", (site / "assets" / "base.json").read_text())
             self.assertTrue((site / ".nojekyll").is_file())
+            self.assertTrue((site / "live.js").is_file())
+            generate.verify_wasm(site)
 
     def test_assemble_site_can_preserve_rendered_media(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -177,10 +182,12 @@ class SiteVerificationTests(unittest.TestCase):
             (source / "maps" / "01-look.toml").write_text("[audio]\n", encoding="utf-8")
             (source / "base.json").write_text("{}\n", encoding="utf-8")
             (source / "index.template.html").write_text(
-                "<html><body>{{SHOWCASE_CARDS}}</body></html>", encoding="utf-8"
+                "<html><body>{{SHOWCASE_CARDS}}<ul>{{LIVE_PRESETS}}</ul></body></html>", encoding="utf-8"
             )
-            for filename in ("styles.css", "app.js", "favicon.svg"):
+            for filename in generate.PUBLIC_FILES:
                 (source / filename).write_text(filename, encoding="utf-8")
+            wasm = root / "engine.wasm"
+            wasm.write_bytes(b"\0asm\x01\0\0\0")
             (site / "media").mkdir(parents=True)
             (site / "posters").mkdir()
             (site / "media" / "render.mp4").write_bytes(b"video")
@@ -190,14 +197,15 @@ class SiteVerificationTests(unittest.TestCase):
                 source,
                 site,
                 [generate.Look("01-look", "Look", "Description")],
+                wasm,
                 preserve_media=True,
             )
 
             self.assertEqual(b"video", (site / "media" / "render.mp4").read_bytes())
             self.assertEqual(b"poster", (site / "posters" / "render.jpg").read_bytes())
 
-    def test_render_index_inserts_video_and_mapping_for_every_look(self):
-        template = "<main>{{SHOWCASE_CARDS}}</main>"
+    def test_render_index_inserts_video_mapping_and_live_preset_for_every_look(self):
+        template = "<main>{{SHOWCASE_CARDS}}</main><ul>{{LIVE_PRESETS}}</ul>"
         looks = [
             generate.Look("01-soft-tape", "Soft tape", "Gentle wobble."),
             generate.Look("02-bass-buckle", "Bass buckle", "Bass bends."),
@@ -208,7 +216,22 @@ class SiteVerificationTests(unittest.TestCase):
         self.assertIn('data-src="media/01-soft-tape.mp4"', rendered)
         self.assertIn('href="maps/01-soft-tape.toml"', rendered)
         self.assertIn('data-src="media/02-bass-buckle.mp4"', rendered)
+        self.assertIn('data-slug="02-bass-buckle"', rendered)
         self.assertNotIn("{{SHOWCASE_CARDS}}", rendered)
+        self.assertNotIn("{{LIVE_PRESETS}}", rendered)
+
+    def test_render_index_requires_live_preset_marker(self):
+        with self.assertRaisesRegex(ValueError, "LIVE_PRESETS"):
+            generate.render_index("<main>{{SHOWCASE_CARDS}}</main>", [])
+
+    def test_verify_wasm_rejects_non_wasm_engine(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            site = Path(tmp)
+            with self.assertRaisesRegex(ValueError, "missing live demo engine"):
+                generate.verify_wasm(site)
+            (site / generate.WASM_NAME).write_text("<!doctype html>", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "not a WebAssembly module"):
+                generate.verify_wasm(site)
 
     def test_verify_local_links_reports_missing_targets(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -4,6 +4,11 @@ All notable changes to reactive-vcr appear here. This project follows [Semantic 
 
 ## [Unreleased]
 
+### Added
+
+- Live deck on the showcase site: the core runs in the browser as WebAssembly and bends the demo clip, your video, or your camera to the demo beat or your song, with the showcase mappings as presets. Nothing is uploaded.
+- `mapping::compile_with` compiles a mapping with preset files supplied by the caller instead of the filesystem.
+
 ## [0.4.0] - 2026-10-17
 
 ### Added

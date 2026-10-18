@@ -765,6 +765,18 @@ pub fn compile(
     base_dir: &Path,
     catalog: &ParamCatalog,
 ) -> Result<CompiledMapping> {
+    compile_with(file, base_dir, catalog, |path| {
+        std::fs::read_to_string(path).map_err(Into::into)
+    })
+}
+
+/// [`compile`] with preset files supplied by `read` instead of the filesystem.
+pub fn compile_with(
+    file: MappingFile,
+    base_dir: &Path,
+    catalog: &ParamCatalog,
+    mut read: impl FnMut(&Path) -> Result<String>,
+) -> Result<CompiledMapping> {
     let mut errors = Vec::new();
     let base_section = file.base.unwrap_or_default();
     let ntsc_enabled = base_section.ntsc.unwrap_or(true);
@@ -782,7 +794,7 @@ pub fn compile(
     let mut base = EffectSettings::default();
     let preset_path = base_section.preset.map(|preset| base_dir.join(preset));
     if let Some(full) = &preset_path {
-        match std::fs::read_to_string(full)
+        match read(full)
             .with_context(|| format!("reading preset {}", full.display()))
             .and_then(|json| {
                 catalog
@@ -834,7 +846,7 @@ pub fn compile(
     let bender_section = file.bender.unwrap_or_default();
     let bender_preset_path = bender_section.preset.map(|preset| base_dir.join(preset));
     if let Some(full) = &bender_preset_path {
-        match std::fs::read_to_string(full)
+        match read(full)
             .with_context(|| format!("reading bender preset {}", full.display()))
             .and_then(|json| {
                 bender::BendEffect::from_json(&json)

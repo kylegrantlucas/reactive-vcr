@@ -48,6 +48,8 @@
                   rustfmt
                   clippy
                   rust-analyzer
+                  # wasm32 linker for the showcase site's reactive-vcr-wasm build
+                  lld
                   # demo generator and `just demo` inputs
                   ffmpeg
                   python3

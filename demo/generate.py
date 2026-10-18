@@ -26,6 +26,8 @@ FPS = 30
 WIDTH = 960
 HEIGHT = 540
 SITE_LIMIT_BYTES = 160 * 1024 * 1024
+WASM_NAME = "reactive-vcr.wasm"
+PUBLIC_FILES = ("styles.css", "app.js", "engine.js", "live.js", "favicon.svg")
 COMPARISON_COLUMNS = 3
 TILE_WIDTH = 320
 TILE_HEIGHT = 208
@@ -81,8 +83,15 @@ def load_showcase(source_dir):
     return looks
 
 
+def fill_marker(template, marker, content):
+    if marker not in template:
+        raise ValueError(f"template is missing {marker}")
+    return template.replace(marker, content)
+
+
 def render_index(template, looks):
     cards = []
+    presets = []
     for look in looks:
         slug = html.escape(look.slug, quote=True)
         title = html.escape(look.title)
@@ -98,16 +107,19 @@ def render_index(template, looks):
       aria-controls="video-{slug}">Play {title}</button>
   </div>
   <p>{description}</p>
-  <div class="card-links"><a href="maps/{slug}.toml">View mapping</a><a href="media/{slug}.mp4" download>Download clip</a></div>
+  <div class="card-links"><a href="#live" data-live="{slug}">Try live</a><a href="maps/{slug}.toml">View mapping</a><a href="media/{slug}.mp4" download>Download clip</a></div>
 </article>'''
         )
-    marker = "{{SHOWCASE_CARDS}}"
-    if marker not in template:
-        raise ValueError(f"template is missing {marker}")
-    return template.replace(marker, "\n".join(cards))
+        presets.append(
+            f'''<li><button class="live-preset" type="button" data-slug="{slug}" aria-pressed="false">
+  <b><span>{slug[:2]}</span> {title}</b><small>{description}</small>
+</button></li>'''
+        )
+    template = fill_marker(template, "{{SHOWCASE_CARDS}}", "\n".join(cards))
+    return fill_marker(template, "{{LIVE_PRESETS}}", "\n".join(presets))
 
 
-def assemble_site(source_dir, site_dir, looks, preserve_media=False):
+def assemble_site(source_dir, site_dir, looks, wasm, preserve_media=False):
     source_dir = Path(source_dir)
     site_dir = Path(site_dir)
     if site_dir.exists() and not preserve_media:
@@ -115,8 +127,9 @@ def assemble_site(source_dir, site_dir, looks, preserve_media=False):
     site_dir.mkdir(parents=True, exist_ok=True)
     template = (source_dir / "index.template.html").read_text(encoding="utf-8")
     (site_dir / "index.html").write_text(render_index(template, looks), encoding="utf-8")
-    for filename in ("styles.css", "app.js", "favicon.svg"):
+    for filename in PUBLIC_FILES:
         shutil.copy2(source_dir / filename, site_dir / filename)
+    shutil.copy2(wasm, site_dir / WASM_NAME)
     for directory in (site_dir / "maps", site_dir / "assets"):
         shutil.rmtree(directory, ignore_errors=True)
     shutil.copytree(source_dir / "maps", site_dir / "maps")
@@ -482,8 +495,18 @@ def verify_media(site_dir, looks):
     return manifest
 
 
+def verify_wasm(site_dir):
+    path = Path(site_dir) / WASM_NAME
+    if not path.is_file():
+        raise ValueError(f"missing live demo engine: {WASM_NAME}")
+    with path.open("rb") as wasm_file:
+        if wasm_file.read(4) != b"\0asm":
+            raise ValueError(f"{WASM_NAME} is not a WebAssembly module")
+
+
 def verify_site(site_dir, looks, size_limit_bytes=SITE_LIMIT_BYTES):
     manifest = verify_media(site_dir, looks)
+    verify_wasm(site_dir)
     verify_local_links(site_dir)
     total = enforce_size_limit(site_dir, size_limit_bytes)
     print(
@@ -497,6 +520,12 @@ def parse_args():
     parser.add_argument("command", choices=("build", "site", "verify"), nargs="?", default="build")
     parser.add_argument("--output", type=Path, default=ROOT / "target" / "demo-site")
     parser.add_argument("--binary", type=Path, default=ROOT / "target" / "release" / "reactive-vcr")
+    parser.add_argument(
+        "--wasm",
+        type=Path,
+        default=ROOT / "target" / "wasm32-unknown-unknown" / "release" / "reactive_vcr_wasm.wasm",
+        help="live demo engine built from crates/reactive-vcr-wasm",
+    )
     parser.add_argument("--font", type=Path)
     parser.add_argument("--size-limit-mib", type=int, default=SITE_LIMIT_BYTES // (1024 * 1024))
     return parser.parse_args()
@@ -506,10 +535,13 @@ def main():
     args = parse_args()
     looks = load_showcase(SOURCE_DIR)
     if args.command in {"build", "site"}:
+        if not args.wasm.is_file():
+            raise FileNotFoundError(f"live demo engine not found: {args.wasm}")
         assemble_site(
             SOURCE_DIR,
             args.output,
             looks,
+            args.wasm,
             preserve_media=args.command == "site",
         )
     if args.command == "build":

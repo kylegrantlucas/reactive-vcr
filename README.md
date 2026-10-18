@@ -8,7 +8,7 @@ Make analog damage move to the music.
 
 `reactive-vcr` applies an [ntsc-rs](https://github.com/valadaptive/ntsc-rs) VHS/NTSC effect and [bender-rs](https://github.com/kylegrantlucas/bender-rs) circuit bends whose settings respond to an audio file. A declarative TOML mapping connects RMS level, named frequency bands, and onset events to any supported ntsc-rs or bender-rs setting.
 
-**[Watch the full interactive showcase](https://kylegrantlucas.github.io/reactive-vcr/)**: one clean source, eleven treatments, and an original synthesized soundtrack.
+**[Watch the full interactive showcase](https://kylegrantlucas.github.io/reactive-vcr/)**: one clean source, eleven treatments, an original synthesized soundtrack, and a live deck that runs the effect in your browser on your own video, song, or camera.
 
 ## What's included
 
@@ -201,12 +201,14 @@ Validation reports independent mapping errors together, including unknown target
 
 The public site contains no hand-edited or commercial media. Its Python generator synthesizes the soundtrack and source video with FFmpeg, renders every mapping with the release command-line tool, builds the comparison and sampler reels, creates posters, and verifies the finished artifact.
 
+The site's live deck runs the core in the browser. `crates/reactive-vcr-wasm` compiles it to a dependency-free WebAssembly module; the page decodes the soundtrack, analyzes it the way `render` does, and processes each frame of the picture with the scheduled settings. Its output matches the native renderer to within one level per channel.
+
 ```sh
 just showcase
 just showcase-serve
 ```
 
-The complete site is written to `target/demo-site/`.
+The complete site is written to `target/demo-site/`. `just showcase-site` refreshes the page, scripts, and WebAssembly engine without rerendering video. Building the engine needs the `wasm32-unknown-unknown` Rust target (`rustup target add wasm32-unknown-unknown`; `nix develop` includes it).
 
 ## Development
 
