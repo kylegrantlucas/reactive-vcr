@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>reactive-vcr — make analog damage move to the music</title>
-  <meta name="description" content="A scriptable audio-reactive VHS, NTSC, and circuit-bend renderer built with Rust, ntsc-rs, bender-rs, and FFmpeg.">
+  <meta name="description" content="A scriptable audio-reactive VHS, NTSC, and circuit-bend renderer with a live desktop app, built with Rust, ntsc-rs, bender-rs, and GStreamer.">
   <meta name="theme-color" content="#0a0b0d">
   <meta property="og:title" content="reactive-vcr">
   <meta property="og:description" content="Make analog damage move to the music.">
@@ -23,6 +23,7 @@
     <a class="wordmark" href="#top" aria-label="reactive-vcr home"><span>REACTIVE</span><i>/</i><span>VCR</span></a>
     <nav aria-label="Primary navigation">
       <a href="#how">How it works</a>
+      <a href="#app">Desktop app</a>
       <a href="#showcase">Showcase</a>
       <a href="#install">Install</a>
       <a href="https://github.com/kylegrantlucas/reactive-vcr">GitHub</a>
@@ -34,15 +35,15 @@
       <div class="hero-copy">
         <p class="eyebrow"><span class="status-dot"></span> AUDIO IN / ANALOG OUT</p>
         <h1 id="hero-title">Make analog damage <em>move to the music.</em></h1>
-        <p class="lede">reactive-vcr maps bass, frequency bands, and transients to more than sixty ntsc-rs controls and every bender-rs circuit bend—frame by frame, from a readable TOML file.</p>
+        <p class="lede">reactive-vcr maps bass, frequency bands, and transients to more than sixty ntsc-rs controls and every bender-rs circuit bend—frame by frame, from a readable TOML file. Tune the look live in the desktop app, then render.</p>
         <div class="actions">
-          <a class="button primary" href="https://github.com/kylegrantlucas/reactive-vcr/releases/latest">Download v0.3.0</a>
+          <a class="button primary" href="https://github.com/kylegrantlucas/reactive-vcr/releases/latest">Download v0.4.0</a>
           <a class="button secondary" href="https://github.com/kylegrantlucas/reactive-vcr">View source</a>
         </div>
-        <p class="platform-note">Apple Silicon macOS · x86_64 Linux · MIT</p>
+        <p class="platform-note">Apple Silicon macOS · x86_64 and arm64 Linux · MIT</p>
       </div>
       <div class="hero-player tape-window">
-        <div class="deck-label"><span>DEMO REEL</span><span>00:32</span></div>
+        <div class="deck-label"><span>DEMO REEL</span><span>00:44</span></div>
         <div class="video-frame">
           <video id="video-sampler" controls playsinline preload="none" poster="posters/10-sampler-reel.jpg" data-src="media/10-sampler-reel.mp4" aria-label="Forty-four-second reactive-vcr sampler"></video>
           <button class="load-video hero-play" type="button" data-for="video-sampler" aria-controls="video-sampler"><span>▶</span> Play the reel</button>
@@ -61,9 +62,9 @@
         <h2 id="how-title">Three inputs. One reactive signal chain.</h2>
       </div>
       <ol class="steps">
-        <li><span>01</span><h3>Bring video</h3><p>Use any source FFmpeg can decode.</p></li>
-        <li><span>02</span><h3>Bring audio</h3><p>Drive the effect with a separate track.</p></li>
-        <li><span>03</span><h3>Patch parameters</h3><p>Map sound features to ntsc-rs and bender-rs controls in TOML.</p></li>
+        <li><span>01</span><h3>Bring video</h3><p>Use any source GStreamer can decode.</p></li>
+        <li><span>02</span><h3>Bring audio</h3><p>Drive the effect with a separate track or the video's own sound.</p></li>
+        <li><span>03</span><h3>Patch parameters</h3><p>Map sound features to ntsc-rs and bender-rs controls in the desktop app or in TOML.</p></li>
       </ol>
       <div class="command-block">
         <code>reactive-vcr render --video in.mp4 --audio song.wav --map fx.toml -o out.mp4</code>
@@ -71,9 +72,25 @@
       </div>
     </section>
 
+    <section class="section how" id="app" aria-labelledby="app-title">
+      <div class="section-heading">
+        <p class="eyebrow">MONITOR OUT</p>
+        <h2 id="app-title">Hear it. See it. Tweak it live.</h2>
+      </div>
+      <ol class="steps">
+        <li><span>01</span><h3>Drop in a video and a song</h3><p>The preview applies the effect to every frame in sync with the sound.</p></li>
+        <li><span>02</span><h3>Watch the meters</h3><p>Per-frame meters show the audio features and every modulated setting.</p></li>
+        <li><span>03</span><h3>Save and render</h3><p>Write the mapping as TOML, then queue H.264 MP4 or lossless FFV1 MKV renders.</p></li>
+      </ol>
+      <div class="command-block">
+        <code>reactive-vcr play --video in.mp4 --audio song.wav --map fx.toml</code>
+        <button class="copy-command" type="button" aria-label="Copy play command">Copy</button>
+      </div>
+    </section>
+
     <section class="section compare" aria-labelledby="compare-title">
       <div class="section-heading compact">
-        <div><p class="eyebrow">A / B / C / D / E / F / G / H</p><h2 id="compare-title">Same signal. Nine views.</h2></div>
+        <div><p class="eyebrow">A–L / 3 × 4 GRID</p><h2 id="compare-title">Same signal. Twelve views.</h2></div>
         <p>Every treatment shares the same source and original synthesized beat. Start here to compare their motion in sync.</p>
       </div>
       <div class="tape-window comparison-player">
@@ -104,19 +121,19 @@
     <section class="section install" id="install" aria-labelledby="install-title">
       <div>
         <p class="eyebrow">GET THE DECK</p>
-        <h2 id="install-title">A binary, FFmpeg, and a mapping file.</h2>
-        <p>Download a release for Apple Silicon macOS or x86_64 Linux. Install <code>ffmpeg</code> and <code>ffprobe</code> separately, then render offline at full quality.</p>
+        <h2 id="install-title">An app, a binary, and a mapping file.</h2>
+        <p>On Apple Silicon macOS, download <code>reactive-vcr.app</code> with GStreamer bundled inside and the command-line tool included. On x86_64 or arm64 Linux, the archive holds <code>reactive-vcr</code> and <code>reactive-vcr-gui</code>, which use the system GStreamer. No FFmpeg required.</p>
       </div>
       <div class="install-links">
         <a class="button primary" href="https://github.com/kylegrantlucas/reactive-vcr/releases/latest">Latest release</a>
-        <a class="text-link" href="https://github.com/kylegrantlucas/reactive-vcr#quick-start">Read the quick start →</a>
+        <a class="text-link" href="https://github.com/kylegrantlucas/reactive-vcr#install">Read the install guide →</a>
       </div>
     </section>
   </main>
 
   <footer>
     <a class="wordmark small" href="#top"><span>REACTIVE</span><i>/</i><span>VCR</span></a>
-    <p>Built with Rust, FFmpeg, the MIT-licensed ntsc-rs core, and the MIT/Apache-2.0 bender-rs core. Demo audio is original and synthesized.</p>
+    <p>Built with Rust, GStreamer, the MIT-licensed ntsc-rs core, and the MIT/Apache-2.0 bender-rs core. Demo audio is original and synthesized.</p>
     <div><a href="https://github.com/kylegrantlucas/reactive-vcr">Source</a><a href="https://github.com/kylegrantlucas/reactive-vcr/blob/main/LICENSE">License</a></div>
   </footer>
 </body>
