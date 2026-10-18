@@ -30,11 +30,12 @@ for (const video of videos) {
   video.addEventListener("play", () => pauseOtherVideos(video));
 }
 
-const copyButton = document.querySelector(".copy-command");
-copyButton?.addEventListener("click", async () => {
-  const command = copyButton.previousElementSibling?.textContent?.trim();
-  if (!command) return;
-  await navigator.clipboard.writeText(command);
-  copyButton.textContent = "Copied";
-  window.setTimeout(() => { copyButton.textContent = "Copy"; }, 1400);
-});
+for (const copyButton of document.querySelectorAll(".copy-command")) {
+  copyButton.addEventListener("click", async () => {
+    const command = copyButton.previousElementSibling?.textContent?.trim();
+    if (!command) return;
+    await navigator.clipboard.writeText(command);
+    copyButton.textContent = "Copied";
+    window.setTimeout(() => { copyButton.textContent = "Copy"; }, 1400);
+  });
+}
