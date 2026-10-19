@@ -7,7 +7,7 @@ version = "0.5.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/kylegrantlucas/reactive-vcr"
-homepage = "https://kylegrantlucas.github.io/reactive-vcr/"
+homepage = "https://klr.dev/reactive-vcr/"
 publish = false
 
 [workspace.dependencies]

@@ -4,6 +4,10 @@ All notable changes to reactive-vcr appear here. This project follows [Semantic 
 
 ## [Unreleased]
 
+### Changed
+
+- The showcase site lives at https://klr.dev/reactive-vcr/: its canonical and social-card URLs, the README links, and the crate homepage point there, and the footer credits Kyle Lucas-Rodriguez.
+
 ## [0.5.0] - 2026-10-18
 
 ### Added
