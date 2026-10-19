@@ -1,14 +1,14 @@
 # reactive-vcr
 
 [![CI](https://github.com/kylegrantlucas/reactive-vcr/actions/workflows/ci.yml/badge.svg)](https://github.com/kylegrantlucas/reactive-vcr/actions/workflows/ci.yml)
-[![Demo](https://img.shields.io/badge/demo-watch-79f6dc)](https://kylegrantlucas.github.io/reactive-vcr/)
+[![Demo](https://img.shields.io/badge/demo-watch-79f6dc)](https://klr.dev/reactive-vcr/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-f7e26b)](LICENSE)
 
 Make analog damage move to the music.
 
 `reactive-vcr` applies an [ntsc-rs](https://github.com/valadaptive/ntsc-rs) VHS/NTSC effect and [bender-rs](https://github.com/kylegrantlucas/bender-rs) circuit bends whose settings respond to music: a song you render against, or live sound from a microphone or your OBS stream. A declarative TOML mapping connects RMS level, named frequency bands, and onset events to any supported ntsc-rs or bender-rs setting.
 
-**[Watch the full interactive showcase](https://kylegrantlucas.github.io/reactive-vcr/)**: one clean source, eleven treatments, an original synthesized soundtrack, and a live deck that runs the effect in your browser on your own video, song, or camera.
+**[Watch the full interactive showcase](https://klr.dev/reactive-vcr/)**: one clean source, eleven treatments, an original synthesized soundtrack, and a live deck that runs the effect in your browser on your own video, song, or camera.
 
 ## What's included
 

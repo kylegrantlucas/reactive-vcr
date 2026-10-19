@@ -137,6 +137,9 @@ h3 { font-size: 18px; }
 footer { display: grid; grid-template-columns: auto 1fr auto; gap: 40px; align-items: center; min-height: 150px; color: var(--dim); font-size: 11px; }
 footer p { margin: 0; text-align: center; }
 footer div { display: flex; gap: 18px; }
+footer .credit { display: block; margin-bottom: 6px; color: var(--muted); }
+footer .credit a { color: var(--ink); }
+footer .credit a:hover { color: var(--cyan); }
 
 .live-deck { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 18px; align-items: start; }
 .live-main, .live-panel { min-width: 0; }
