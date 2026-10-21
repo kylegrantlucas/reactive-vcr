@@ -135,7 +135,8 @@ pub struct StreamArgs {
     /// Mapping file; edits to it and its presets apply while streaming.
     #[arg(long)]
     pub map: PathBuf,
-    /// GStreamer video source, as a gst-launch description.
+    /// GStreamer video source, as a gst-launch description: a camera, or a file or pipe,
+    /// which plays every frame in real time.
     #[arg(long, default_value = "autovideosrc")]
     pub video_source: String,
     /// GStreamer audio source that drives the effect, as a gst-launch description.

@@ -84,9 +84,9 @@ pub fn stream(o: &StreamOptions) -> Result<StreamSummary> {
     })
 }
 
-/// `source ! queue(leaky, 1 buffer) ! videoconvert ! videoscale ! RGB at `lines` ! filter !
-/// videoconvert ! sink`. The leaky queue drops stale frames when processing falls behind
-/// capture, which bounds latency.
+/// `source ! queue(1 buffer) ! videoconvert ! videoscale ! RGB at `lines` ! filter !
+/// videoconvert ! sink`. How the queue treats the source follows from whether it is live,
+/// which `pace_source` decides at its first frame.
 fn build_video(
     pipeline: &gst::Pipeline,
     o: &StreamOptions,
@@ -94,11 +94,12 @@ fn build_video(
     video_sink: &gst::Element,
 ) -> Result<()> {
     let queue = make("queue")?;
-    queue.set_property_from_str("leaky", "downstream");
     queue.set_property("max-size-buffers", 1u32);
     queue.set_property("max-size-bytes", 0u32);
     queue.set_property("max-size-time", 0u64);
-    let mut elements = vec![source(&o.video_source)?, queue];
+    let source = source(&o.video_source)?;
+    pace_source(&source, &queue);
+    let mut elements = vec![source, queue];
     for factory in ["videoconvert", "videoscale"] {
         let element = make(factory)?;
         element.set_property("n-threads", 0u32);
@@ -120,6 +121,56 @@ fn build_video(
     pipeline.add_many(&elements)?;
     gst::Element::link_many(&elements)?;
     Ok(())
+}
+
+/// At the source's first frame, ask upstream whether it is live.
+///
+/// A live source, such as a camera, keeps capturing whether or not anyone keeps up, so the
+/// queue becomes leaky and drops stale frames when processing falls behind, which bounds
+/// latency. A non-live source, such as a file or a pipe, produces as fast as it is consumed,
+/// so the queue holds it back and the sink paces every frame by its timestamp. Its
+/// timestamps start at zero whenever its first frame arrives, which may be well after the
+/// stream started; when that frame is late, the source's output is offset by the lateness
+/// so it plays from that moment in real time instead of being dropped as late.
+fn pace_source(source: &gst::Element, queue: &gst::Element) {
+    let output = source.static_pad("src").expect("sources have an output");
+    let source = source.downgrade();
+    let queue = queue.downgrade();
+    output.add_probe(gst::PadProbeType::BUFFER, move |pad, info| {
+        let mut latency = gst::query::Latency::new();
+        // A source that can't say keeps the latency-bounding behavior.
+        let live = !pad.query(&mut latency) || latency.result().0;
+        if live {
+            if let Some(queue) = queue.upgrade() {
+                queue.set_property_from_str("leaky", "downstream");
+            }
+        } else if let Some(buffer) = info.buffer()
+            && let Some(source) = source.upgrade()
+            && let Some(late) = lateness(pad, &source, buffer)
+        {
+            pad.set_offset(late.nseconds() as i64);
+        }
+        gst::PadProbeReturn::Remove
+    });
+}
+
+/// How far `buffer`, about to leave `pad` of `source`, is behind the running time, if at all.
+fn lateness(
+    pad: &gst::Pad,
+    source: &gst::Element,
+    buffer: &gst::BufferRef,
+) -> Option<gst::ClockTime> {
+    // Before it plays, the source has no running time yet and its base time may be stale.
+    if source.current_state() != gst::State::Playing {
+        return None;
+    }
+    let now = source.clock()?.time().checked_sub(source.base_time()?)?;
+    let segment = pad.sticky_event::<gst::event::Segment>(0)?;
+    let due = segment
+        .segment()
+        .downcast_ref::<gst::ClockTime>()?
+        .to_running_time(buffer.pts()?)?;
+    now.checked_sub(due).filter(|late| !late.is_zero())
 }
 
 /// `source ! tee`, with one branch analyzed as mono f32 at `SAMPLE_RATE` and one sent to the

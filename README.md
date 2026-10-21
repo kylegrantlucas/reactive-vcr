@@ -101,6 +101,15 @@ This opens a window with your camera running through the deck and your microphon
 
 Any camera, microphone, or feed that GStreamer can open works as an input, and the result can go to a window or any GStreamer sink: see `--video-source`, `--audio-source`, `--video-sink`, and `--lines` (480 by default) under [Commands](#commands). The driving audio is not played back unless you set `--audio-sink`, so a microphone cannot feed back.
 
+A camera or other live feed always shows its newest frame: when the effect falls behind, stale frames are dropped so the picture stays current. A file or a pipe plays every frame at its own rate, starting from when its first frame arrives, so a clip can stand in for the camera while you tune a look:
+
+```sh
+reactive-vcr stream --map examples/basic.toml \
+  --video-source "filesrc location=clip.mp4 ! decodebin"
+ffmpeg -re -i clip.mp4 -f yuv4mpegpipe - | reactive-vcr stream --map examples/basic.toml \
+  --video-source "fdsrc fd=0 ! y4mdec"
+```
+
 Live mode reacts to what it has just heard and cannot look ahead the way `render` does. Levels adapt to the last 10 seconds of sound, and hits register one frame after they land.
 
 ## Command line
@@ -175,7 +184,7 @@ The output extension picks the codec: `.mp4` writes H.264 and AAC with the index
 
 The renderer resamples video to a constant frame rate taken from the first video stream. Variable-rate input may duplicate or drop frames, with duration rounded to a frame boundary. Pass the same rate to `analyze` when comparing its CSV with a render.
 
-`play` takes the same timeline and audio options. `--video-sink` and `--audio-sink` accept gst-launch descriptions, such as `"glimagesink"` or `"volume volume=0.5 ! autoaudiosink"`.
+`play` takes the same timeline and audio options. `--video-sink` and `--audio-sink` accept gst-launch descriptions, such as `"glimagesink"` or `"volume volume=0.5 ! autoaudiosink"`, and may start with caps to pick the format the sink receives, such as `"video/x-raw,format=I420 ! x264enc ! mpegtsmux ! udpsink host=… port=5000"` for an H.264 stream most players can decode.
 
 ## Mapping files
 
