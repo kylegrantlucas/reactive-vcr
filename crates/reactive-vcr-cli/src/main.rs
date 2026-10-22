@@ -67,6 +67,7 @@ fn run(cli: Cli) -> Result<()> {
                 lines: args.lines,
                 video_sink: args.video_sink,
                 audio_sink: args.audio_sink,
+                gate_db: args.gate_db,
                 telemetry,
                 quiet,
             })?;

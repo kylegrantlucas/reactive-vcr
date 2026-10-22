@@ -36,6 +36,8 @@ pub struct StreamOptions {
     pub video_sink: String,
     /// GStreamer sink for the driving audio, such as `fakesink` or `autoaudiosink`.
     pub audio_sink: String,
+    /// Gate the driving audio's analysis at this level in dBFS; see `LiveProgram::set_gate`.
+    pub gate_db: Option<f32>,
     /// Where to send UDP telemetry, if anywhere.
     pub telemetry: Option<TelemetryOptions>,
     pub quiet: bool,
@@ -68,12 +70,9 @@ fn run(o: &StreamOptions, telemetry: Option<&Arc<Telemetry>>) -> Result<StreamSu
     let catalog = Arc::new(ParamCatalog::new());
     let mut watcher = MappingWatcher::new(o.map.clone());
     let map = watcher.load(&catalog)?;
-    let live = Arc::new(Mutex::new(LiveProgram::new(
-        catalog.clone(),
-        Arc::new(map),
-        SAMPLE_RATE,
-        DEFAULT_FPS,
-    )));
+    let mut program = LiveProgram::new(catalog.clone(), Arc::new(map), SAMPLE_RATE, DEFAULT_FPS);
+    program.set_gate(o.gate_db);
+    let live = Arc::new(Mutex::new(program));
 
     let pipeline = gst::Pipeline::new();
     let filter = ReactiveFilter::new_live(live.clone());

@@ -155,6 +155,11 @@ pub struct StreamArgs {
     /// GStreamer audio sink; the default discards audio so a microphone can't feed back.
     #[arg(long, default_value = "fakesink")]
     pub audio_sink: String,
+    /// Treat the driving audio as silence while its level is below this many dBFS, such as
+    /// `-60`; set it a few dB above the input's noise floor. Opens above the level, closes
+    /// 3 dB below it.
+    #[arg(long, value_name = "DBFS", allow_negative_numbers = true, value_parser = gate_db)]
+    pub gate_db: Option<f32>,
     /// Send UDP JSON telemetry to HOST:PORT: a start message, frame state, and fatal errors.
     #[arg(long, value_name = "HOST:PORT", requires = "telemetry_id")]
     pub telemetry: Option<String>,
@@ -176,4 +181,15 @@ pub struct CheckArgs {
     /// Print one JSON line: `{"ok":true}` or `{"ok":false,"errors":[...]}`.
     #[arg(long)]
     pub json: bool,
+}
+
+fn gate_db(value: &str) -> Result<f32, String> {
+    let db: f32 = value
+        .parse()
+        .map_err(|_| format!("`{value}` is not a number"))?;
+    if (-120.0..=0.0).contains(&db) {
+        Ok(db)
+    } else {
+        Err(format!("{db} dBFS is outside -120..=0"))
+    }
 }

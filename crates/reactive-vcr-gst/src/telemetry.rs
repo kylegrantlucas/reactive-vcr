@@ -146,7 +146,7 @@ impl Telemetry {
                 total.as_secs_f64() * 1e3 / count as f64,
             )
         };
-        let (features, targets) = {
+        let (features, targets, level_db, gated) = {
             let live = live.lock();
             let current = live.features();
             let bands: Map<String, Value> = live
@@ -163,7 +163,11 @@ impl Telemetry {
                 "onset": rounded(current.onset.into()),
                 "bands": bands,
             });
-            (features, targets)
+            // dBFS to a tenth, or `null` at digital silence.
+            let level_db = live
+                .level_db()
+                .map(|level| (f64::from(level) * 10.0).round() / 10.0);
+            (features, targets, level_db, live.gated())
         };
         self.send(
             "frame",
@@ -175,6 +179,8 @@ impl Telemetry {
                 "features": features,
                 "targets": targets,
                 "mapping_error": self.mapping_error.lock().clone(),
+                "level_db": level_db,
+                "gated": gated,
             }),
         );
     }

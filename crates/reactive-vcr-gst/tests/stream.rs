@@ -16,6 +16,7 @@ fn stream_with(video_source: &str, video_sink: &str) -> anyhow::Result<StreamSum
         lines: 120,
         video_sink: video_sink.into(),
         audio_sink: "fakesink".into(),
+        gate_db: None,
         telemetry: None,
         quiet: true,
     })
@@ -35,6 +36,7 @@ fn stream_frames(dir: &Path, name: &str, audio_source: &str) -> Vec<Vec<u8>> {
             output.display()
         ),
         audio_sink: "fakesink".into(),
+        gate_db: None,
         telemetry: None,
         quiet: true,
     };

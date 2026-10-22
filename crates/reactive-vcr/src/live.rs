@@ -17,6 +17,29 @@ use std::sync::Arc;
 
 /// Seconds of past levels that set the live normalization reference.
 pub const LIVE_REFERENCE_WINDOW_S: f64 = 10.0;
+/// How far the level must fall below the gate threshold before an open gate closes, so a
+/// level hovering around the threshold doesn't toggle it every frame.
+pub const GATE_HYSTERESIS_DB: f32 = 3.0;
+
+/// A noise gate on the window's RMS level: opens above `threshold_db`, closes below
+/// `threshold_db - GATE_HYSTERESIS_DB`, and starts closed.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Gate {
+    threshold_db: f32,
+    open: bool,
+}
+
+impl Gate {
+    /// Update with this frame's level; returns whether the gate is open.
+    fn update(&mut self, level_db: f32) -> bool {
+        if self.open {
+            self.open = level_db >= self.threshold_db - GATE_HYSTERESIS_DB;
+        } else {
+            self.open = level_db > self.threshold_db;
+        }
+        self.open
+    }
+}
 
 /// Normalized 0..1 features for one live frame.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -56,6 +79,9 @@ pub struct LiveAnalyzer {
     last_onset: Option<usize>,
     sort_scratch: Vec<f32>,
     features: FrameFeatures,
+    gate: Option<Gate>,
+    /// The latest window's RMS level in dBFS; `DB_FLOOR` at digital silence.
+    level_db: f32,
 }
 
 impl LiveAnalyzer {
@@ -82,8 +108,31 @@ impl LiveAnalyzer {
                 bands: vec![0.0; band_count],
                 onset: 0.0,
             },
+            gate: None,
+            level_db: DB_FLOOR,
             bands,
         }
+    }
+
+    /// Gate analysis at `threshold_db` dBFS, or not at all with `None`. While the gate is
+    /// closed, frames read as silence (every feature 0, no onset) and stay out of the level
+    /// history, so the normalization reference keeps reflecting the last ungated audio.
+    pub fn set_gate(&mut self, threshold_db: Option<f32>) {
+        self.gate = threshold_db.map(|threshold_db| Gate {
+            threshold_db,
+            open: false,
+        });
+    }
+
+    /// Whether the latest frame was gated; always false without a gate.
+    pub fn gated(&self) -> bool {
+        self.gate.is_some_and(|gate| !gate.open)
+    }
+
+    /// The latest window's RMS level in dBFS, whether or not it was gated; `None` at digital
+    /// silence.
+    pub fn level_db(&self) -> Option<f32> {
+        (self.level_db > DB_FLOOR).then_some(self.level_db)
     }
 
     /// Append mono samples at the analyzer's sample rate; only the newest `FFT_SIZE` are kept.
@@ -104,7 +153,19 @@ impl LiveAnalyzer {
             &self.bands,
             &mut self.band_db,
         );
-
+        self.level_db = rms_db;
+        // Onsets are judged a frame late, so the judged frame's gate state is the previous one.
+        let was_open = !self.gated();
+        let open = self.gate.as_mut().is_none_or(|gate| gate.update(rms_db));
+        if !open {
+            self.features.rms = 0.0;
+            self.features.bands.fill(0.0);
+            // Keep the flux context, so a hit right after the gate opens still registers.
+            self.onset_after(flux, false);
+            self.features.onset = 0.0;
+            self.frame += 1;
+            return &self.features;
+        }
         self.rms_history.push_back(rms_db);
         if self.rms_history.len() > self.window_frames {
             self.rms_history.pop_front();
@@ -128,13 +189,18 @@ impl LiveAnalyzer {
             *normalized = normalize_db_value(db, band_reference);
         }
 
-        self.features.onset = if self.onset_after(flux) { 1.0 } else { 0.0 };
+        self.features.onset = if self.onset_after(flux, was_open) {
+            1.0
+        } else {
+            0.0
+        };
         self.frame += 1;
         &self.features
     }
 
-    /// Record this frame's flux and judge whether the previous frame was an onset peak.
-    fn onset_after(&mut self, flux: f32) -> bool {
+    /// Record this frame's flux and judge whether the previous frame was an onset peak; only
+    /// an `allowed` peak fires.
+    fn onset_after(&mut self, flux: f32, allowed: bool) -> bool {
         self.flux_history.push_back(flux);
         if self.flux_history.len() > ONSET_CONTEXT + 2 {
             self.flux_history.pop_front();
@@ -158,17 +224,20 @@ impl LiveAnalyzer {
         let has_gap = self
             .last_onset
             .is_none_or(|last| self.frame - last >= ONSET_MIN_GAP);
-        let fired = is_peak && has_gap;
+        let fired = is_peak && has_gap && allowed;
         if fired {
             self.last_onset = Some(self.frame);
         }
         fired
     }
 
-    /// Carry buffered audio over from `previous`; level and onset histories restart.
+    /// Carry buffered audio and the gate's state over from `previous`; level and onset
+    /// histories restart.
     fn keep_audio_from(&mut self, previous: &LiveAnalyzer) {
         self.ring.copy_from_slice(&previous.ring);
         self.head = previous.head;
+        self.gate = previous.gate;
+        self.level_db = previous.level_db;
     }
 }
 
@@ -228,6 +297,23 @@ impl LiveProgram {
 
     pub fn fps(&self) -> f64 {
         self.fps
+    }
+
+    /// Gate analysis at `threshold_db` dBFS, or not at all with `None`; see
+    /// [`LiveAnalyzer::set_gate`]. The gate survives frame rate and mapping changes.
+    pub fn set_gate(&mut self, threshold_db: Option<f32>) {
+        self.analyzer.set_gate(threshold_db);
+    }
+
+    /// Whether the latest frame was gated; always false without a gate.
+    pub fn gated(&self) -> bool {
+        self.analyzer.gated()
+    }
+
+    /// The latest window's RMS level in dBFS, whether or not it was gated; `None` at digital
+    /// silence.
+    pub fn level_db(&self) -> Option<f32> {
+        self.analyzer.level_db()
     }
 
     /// The normalized features the latest frame's modulations read; zeros before the first
@@ -314,6 +400,7 @@ mod tests {
         assert_eq!(f.rms, 0.0);
         assert!(f.bands.iter().all(|&b| b == 0.0), "{:?}", f.bands);
         assert_eq!(f.onset, 0.0);
+        assert_eq!(silent.level_db(), None, "digital silence has no level");
 
         let mut loud = LiveAnalyzer::new(&map, RATE, 30.0);
         loud.push(&sine(0, FFT_SIZE, 110.0, 0.8));
@@ -389,5 +476,160 @@ mod tests {
         assert_eq!(frame, 0);
         let snow = get_param(&effect, catalog.get("snow_intensity").unwrap());
         assert!(snow > 1.5, "snow {snow}");
+    }
+
+    /// Deterministic white noise at `rms_dbfs`; `state` carries the generator.
+    fn hiss(state: &mut u32, len: usize, rms_dbfs: f32) -> Vec<f32> {
+        // Uniform noise in [-a, a] has an RMS of a / sqrt(3).
+        let amplitude = 10f32.powf(rms_dbfs / 20.0) * 3f32.sqrt();
+        (0..len)
+            .map(|_| {
+                *state ^= *state << 13;
+                *state ^= *state >> 17;
+                *state ^= *state << 5;
+                amplitude * (*state as f32 / u32::MAX as f32 * 2.0 - 1.0)
+            })
+            .collect()
+    }
+
+    /// The rig's idle master bus: hiss at -85 dBFS RMS with a -60 dBFS crackle every half
+    /// second, quiet enough to stay below a -60 dBFS gate.
+    fn idle_bus(state: &mut u32, frame: usize) -> Vec<f32> {
+        let mut chunk = hiss(state, PER_FRAME, -85.0);
+        if frame.is_multiple_of(15) {
+            for (i, sample) in chunk[..64].iter_mut().enumerate() {
+                *sample += if i % 2 == 0 { 1e-3 } else { -1e-3 };
+            }
+        }
+        chunk
+    }
+
+    fn sine_amplitude(rms_dbfs: f32) -> f32 {
+        10f32.powf(rms_dbfs / 20.0) * std::f32::consts::SQRT_2
+    }
+
+    /// Loud music, then idle hiss long enough for the reference window to forget the music.
+    /// Returns the analyzer and every hiss frame's features.
+    fn music_then_hiss(gate_db: Option<f32>) -> (LiveAnalyzer, Vec<FrameFeatures>, usize) {
+        let map = bands_mapping("peak");
+        let mut analyzer = LiveAnalyzer::new(&map, RATE, 30.0);
+        analyzer.set_gate(gate_db);
+        let mut at = 0;
+        for _ in 0..60 {
+            analyzer.push(&sine(at, PER_FRAME, 110.0, 0.8));
+            at += PER_FRAME;
+            analyzer.analyze();
+        }
+        let mut state = 0x9E37_79B9;
+        let frames = (LIVE_REFERENCE_WINDOW_S * 30.0) as usize + 120;
+        let hiss_frames = (0..frames)
+            .map(|frame| {
+                analyzer.push(&idle_bus(&mut state, frame));
+                analyzer.analyze().clone()
+            })
+            .collect();
+        (analyzer, hiss_frames, at)
+    }
+
+    #[test]
+    fn ungated_hiss_reads_high_once_the_music_is_forgotten() {
+        let (analyzer, hiss, _) = music_then_hiss(None);
+        assert!(!analyzer.gated());
+        let settled = &hiss[hiss.len() - 60..];
+        assert!(settled.iter().all(|f| f.rms > 0.8), "{:?}", settled[0]);
+        assert!(settled.iter().all(|f| f.bands[1] > 0.5), "{:?}", settled[0]);
+        let onsets = settled.iter().filter(|f| f.onset > 0.0).count();
+        assert!(onsets > 0, "crackle fires no onsets without a gate");
+    }
+
+    #[test]
+    fn gate_silences_hiss_after_music() {
+        let (analyzer, hiss, _) = music_then_hiss(Some(-60.0));
+        assert!(analyzer.gated());
+        let level = analyzer.level_db().unwrap();
+        assert!((-90.0..-70.0).contains(&level), "hiss level {level} dBFS");
+        // The gate closes once the music has left the analysis window.
+        for (frame, features) in hiss.iter().enumerate().skip(2) {
+            assert_eq!(features.rms, 0.0, "frame {frame}");
+            assert!(features.bands.iter().all(|&b| b == 0.0), "frame {frame}");
+            assert_eq!(features.onset, 0.0, "frame {frame}");
+        }
+    }
+
+    #[test]
+    fn music_after_gated_hiss_keeps_the_earlier_reference() {
+        // 20 dB below the earlier music: a third of the 60 dB window down.
+        let quieter = |gate_db| {
+            let (mut analyzer, _, mut at) = music_then_hiss(gate_db);
+            let mut rms = 0.0;
+            for _ in 0..3 {
+                analyzer.push(&sine(at, PER_FRAME, 110.0, 0.08));
+                at += PER_FRAME;
+                rms = analyzer.analyze().rms;
+            }
+            assert!(!analyzer.gated());
+            rms
+        };
+        let gated = quieter(Some(-60.0));
+        assert!((gated - 2.0 / 3.0).abs() < 0.05, "gated rms {gated}");
+        let ungated = quieter(None);
+        assert!(ungated > 0.95, "ungated rms {ungated}");
+    }
+
+    #[test]
+    fn gate_hysteresis_holds_its_state_between_thresholds() {
+        let map = bands_mapping("peak");
+        let hover = |open_first: bool| {
+            let mut analyzer = LiveAnalyzer::new(&map, RATE, 30.0);
+            analyzer.set_gate(Some(-60.0));
+            let mut at = 0;
+            let first = if open_first { -40.0 } else { -80.0 };
+            for _ in 0..3 {
+                analyzer.push(&sine(at, PER_FRAME, 110.0, sine_amplitude(first)));
+                at += PER_FRAME;
+                analyzer.analyze();
+            }
+            assert_eq!(analyzer.gated(), !open_first);
+            // Between the closing (-63 dBFS) and opening (-60 dBFS) levels.
+            let mut states = Vec::new();
+            for frame in 0..30 {
+                let level = if frame % 2 == 0 { -62.5 } else { -60.5 };
+                analyzer.push(&sine(at, PER_FRAME, 110.0, sine_amplitude(level)));
+                at += PER_FRAME;
+                let rms = analyzer.analyze().rms;
+                let level = analyzer.level_db().unwrap();
+                // The first window still overlaps the audio before the hover.
+                if frame > 0 {
+                    assert!(
+                        (-63.0..-60.0).contains(&level),
+                        "frame {frame}: {level} dBFS"
+                    );
+                }
+                states.push((analyzer.gated(), rms > 0.0));
+            }
+            states
+        };
+        assert!(hover(true).iter().all(|&s| s == (false, true)));
+        assert!(hover(false).iter().all(|&s| s == (true, false)));
+    }
+
+    #[test]
+    fn gate_opens_above_and_closes_below_its_band() {
+        let map = bands_mapping("peak");
+        let mut analyzer = LiveAnalyzer::new(&map, RATE, 30.0);
+        analyzer.set_gate(Some(-60.0));
+        assert!(analyzer.gated());
+        let mut at = 0;
+        let mut step = |analyzer: &mut LiveAnalyzer, dbfs: f32| {
+            for _ in 0..3 {
+                analyzer.push(&sine(at, PER_FRAME, 110.0, sine_amplitude(dbfs)));
+                at += PER_FRAME;
+                analyzer.analyze();
+            }
+            analyzer.gated()
+        };
+        assert!(!step(&mut analyzer, -58.0));
+        assert!(step(&mut analyzer, -65.0));
+        assert!(!step(&mut analyzer, -58.0));
     }
 }

@@ -435,6 +435,7 @@ fn stream_sends_start_and_frame_telemetry() {
     for frame in &frames {
         assert_eq!(frame["id"], "cam-1");
         assert_eq!(frame["v"], 1);
+        assert_eq!(frame["gated"], false, "no gate: {frame}");
         assert!(frame["frames"].as_u64().unwrap() >= 1, "{frame}");
         assert!(frame["dropped"].as_u64().is_some(), "{frame}");
         assert!(frame["fps"].as_f64().unwrap() > 0.0, "{frame}");
@@ -510,4 +511,62 @@ fn stream_reports_a_fatal_error_over_telemetry() {
     for part in message.split(": ") {
         assert!(stderr.contains(part), "{part:?} missing from {stderr}");
     }
+}
+
+/// Frame messages from a 2-second stream driven by white noise at `volume`, gated at -60 dBFS.
+fn gated_frames(volume: &str) -> Vec<serde_json::Value> {
+    let audio = format!("audiotestsrc is-live=true wave=white-noise volume={volume}");
+    let (messages, output) = stream_telemetry(
+        &[
+            "--map",
+            example("basic.toml").to_str().unwrap(),
+            "--video-source",
+            "videotestsrc is-live=true num-buffers=60 \
+             ! video/x-raw,width=160,height=120,framerate=30/1",
+            "--audio-source",
+            &audio,
+            "--video-sink",
+            "fakesink",
+            "--gate-db",
+            "-60",
+        ],
+        |_| {},
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let frames: Vec<_> = messages
+        .into_iter()
+        .filter(|m| m["kind"] == "frame")
+        .collect();
+    assert!(frames.len() >= 5, "{} frame messages", frames.len());
+    frames
+}
+
+#[test]
+fn stream_gate_silences_a_quiet_input_and_reports_its_level() {
+    // About -85 dBFS, like an idle mixer's hiss.
+    let quiet = gated_frames("0.0001");
+    for frame in &quiet {
+        assert_eq!(frame["gated"], true, "{frame}");
+        assert_eq!(frame["features"]["rms"], 0.0, "{frame}");
+        assert_eq!(frame["features"]["onset"], 0.0, "{frame}");
+    }
+    let level = quiet.last().unwrap()["level_db"].as_f64().unwrap();
+    assert!((-95.0..-75.0).contains(&level), "quiet level {level} dBFS");
+    // Rounded to a tenth of a dB.
+    assert_eq!((level * 10.0).round() / 10.0, level);
+
+    let loud = gated_frames("0.5");
+    // The first frames may come before any audio has arrived.
+    for frame in &loud[loud.len() / 2..] {
+        assert_eq!(frame["gated"], false, "{frame}");
+        assert!(frame["level_db"].as_f64().unwrap() > -20.0, "{frame}");
+    }
+    assert!(
+        loud.iter()
+            .any(|frame| frame["features"]["rms"].as_f64().unwrap() > 0.5)
+    );
 }
