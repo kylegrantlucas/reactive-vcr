@@ -2,8 +2,8 @@ mod cli;
 
 use anyhow::{Result, bail};
 use clap::Parser;
-use cli::{Cli, CodecArg, Command, RenderArgs};
-use reactive_vcr::mapping;
+use cli::{CheckArgs, Cli, CodecArg, Command, RenderArgs};
+use reactive_vcr::mapping::{self, MappingProblems};
 use reactive_vcr::params::ParamCatalog;
 use reactive_vcr::timeline::{select_timeline, selection_features, validate_output_is_distinct};
 use reactive_vcr_gst::analyze::{AnalyzeOptions, analyze};
@@ -12,14 +12,21 @@ use reactive_vcr_gst::play::{PlayOptions, play};
 use reactive_vcr_gst::probe::probe;
 use reactive_vcr_gst::render::{OutputCodec, RenderJob, RenderSettings, RenderStatus};
 use reactive_vcr_gst::stream::{StreamOptions, stream};
+use reactive_vcr_gst::telemetry::TelemetryOptions;
 use reactive_vcr_gst::{AudioMode, Program};
 use std::io::Write as _;
+use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
 
-fn main() -> Result<()> {
+fn main() -> Result<ExitCode> {
     let cli = Cli::parse();
-    reactive_vcr_gst::main_thread(move || run(cli))
+    // Checking a mapping needs no media, so it skips GStreamer altogether.
+    if let Command::Check(args) = &cli.command {
+        return Ok(check(args));
+    }
+    reactive_vcr_gst::main_thread(move || run(cli))?;
+    Ok(ExitCode::SUCCESS)
 }
 
 fn run(cli: Cli) -> Result<()> {
@@ -48,6 +55,11 @@ fn run(cli: Cli) -> Result<()> {
         }
         Command::Stream(args) => {
             let quiet = args.quiet;
+            let telemetry = args.telemetry.map(|address| TelemetryOptions {
+                address,
+                id: args.telemetry_id.unwrap_or_default(),
+                hz: f64::from(args.telemetry_hz),
+            });
             let summary = stream(&StreamOptions {
                 map: args.map,
                 video_source: args.video_source,
@@ -55,6 +67,7 @@ fn run(cli: Cli) -> Result<()> {
                 lines: args.lines,
                 video_sink: args.video_sink,
                 audio_sink: args.audio_sink,
+                telemetry,
                 quiet,
             })?;
             if !quiet {
@@ -76,6 +89,39 @@ fn run(cli: Cli) -> Result<()> {
             Ok(())
         }
         Command::Params { json } => print_params(json),
+        Command::Check(_) => unreachable!("handled before GStreamer starts"),
+    }
+}
+
+/// Exit 0 for a valid mapping, 1 for an invalid one, and 2 when it can't be read. With
+/// `--json`, print one line even on failure: every compile problem as its own entry, or else
+/// the whole error chain as one.
+fn check(args: &CheckArgs) -> ExitCode {
+    let error = match mapping::load(&args.map, &ParamCatalog::new()) {
+        Ok(_) => {
+            if args.json {
+                println!("{{\"ok\":true}}");
+            } else {
+                println!("{}: ok", args.map.display());
+            }
+            return ExitCode::SUCCESS;
+        }
+        Err(error) => error,
+    };
+    if args.json {
+        let errors = match error.downcast_ref::<MappingProblems>() {
+            Some(problems) => problems.0.clone(),
+            None => vec![format!("{error:#}")],
+        };
+        let errors = serde_json::to_string(&errors).expect("strings serialize");
+        println!("{{\"ok\":false,\"errors\":{errors}}}");
+    } else {
+        eprintln!("Error: {error:?}");
+    }
+    if error.root_cause().is::<std::io::Error>() {
+        ExitCode::from(2)
+    } else {
+        ExitCode::FAILURE
     }
 }
 

@@ -71,8 +71,8 @@ impl Modulator {
         }
     }
 
-    pub fn target_indices(&self) -> Vec<usize> {
-        self.targets.clone()
+    pub fn target_indices(&self) -> &[usize] {
+        &self.targets
     }
 
     pub fn last_values(&self) -> &[f64] {

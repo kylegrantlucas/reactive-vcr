@@ -221,3 +221,293 @@ fn render_needs_a_known_output_extension() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+/// Run `reactive-vcr check` with `args`; returns its exit code, stdout, and stderr.
+fn check(args: &[&str]) -> (i32, String, String) {
+    let output = Command::new(env!("CARGO_BIN_EXE_reactive-vcr"))
+        .arg("check")
+        .args(args)
+        .output()
+        .unwrap();
+    (
+        output.status.code().expect("exit code"),
+        String::from_utf8(output.stdout).unwrap(),
+        String::from_utf8(output.stderr).unwrap(),
+    )
+}
+
+const TWO_PROBLEMS: &str = r#"
+[[modulate]]
+target = "snow_intensty"
+source = "rms"
+
+[[modulate]]
+target = "snow_intensity"
+source = "band:nope"
+"#;
+
+#[test]
+fn check_accepts_a_valid_mapping() {
+    let map = example("basic.toml");
+    let (code, stdout, _) = check(&["--map", map.to_str().unwrap()]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("ok"), "{stdout}");
+
+    let (code, stdout, _) = check(&["--map", map.to_str().unwrap(), "--json"]);
+    assert_eq!(code, 0);
+    assert_eq!(stdout, "{\"ok\":true}\n");
+}
+
+#[test]
+fn check_reports_each_problem_of_an_invalid_mapping() {
+    let dir = tempfile::tempdir().unwrap();
+    let map = dir.path().join("bad.toml");
+    std::fs::write(&map, TWO_PROBLEMS).unwrap();
+
+    let (code, _, stderr) = check(&["--map", map.to_str().unwrap()]);
+    assert_eq!(code, 1);
+    assert!(
+        stderr.contains("snow_intensty") && stderr.contains("nope"),
+        "{stderr}"
+    );
+
+    let (code, stdout, _) = check(&["--map", map.to_str().unwrap(), "--json"]);
+    assert_eq!(code, 1);
+    assert_eq!(stdout.lines().count(), 1, "{stdout}");
+    let report: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(report["ok"], false);
+    let errors = report["errors"].as_array().unwrap();
+    assert_eq!(errors.len(), 2, "{report}");
+    assert!(errors[0].as_str().unwrap().contains("snow_intensty"));
+    assert!(errors[1].as_str().unwrap().contains("nope"));
+}
+
+#[test]
+fn check_reports_syntax_and_preset_errors_as_invalid() {
+    let dir = tempfile::tempdir().unwrap();
+    let syntax = dir.path().join("syntax.toml");
+    std::fs::write(&syntax, "[[modulate]\n").unwrap();
+    let (code, stdout, _) = check(&["--map", syntax.to_str().unwrap(), "--json"]);
+    assert_eq!(code, 1);
+    let report: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let errors = report["errors"].as_array().unwrap();
+    assert_eq!(errors.len(), 1, "{report}");
+    assert!(errors[0].as_str().unwrap().contains("parsing mapping"));
+
+    // Presets resolve from the mapping's directory, not the working directory.
+    let nested = dir.path().join("maps");
+    std::fs::create_dir(&nested).unwrap();
+    let preset = nested.join("preset.toml");
+    std::fs::write(&preset, "[bender]\npreset = \"missing.json\"\n").unwrap();
+    let (code, stdout, _) = check(&["--map", preset.to_str().unwrap(), "--json"]);
+    assert_eq!(code, 1);
+    let report: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let error = report["errors"][0].as_str().unwrap();
+    assert!(
+        error.contains(&nested.join("missing.json").display().to_string()),
+        "{error}"
+    );
+}
+
+#[test]
+fn check_exits_2_when_the_mapping_cannot_be_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("missing.toml");
+    let (code, stdout, _) = check(&["--map", missing.to_str().unwrap(), "--json"]);
+    assert_eq!(code, 2);
+    let report: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(report["ok"], false);
+    assert!(
+        report["errors"][0]
+            .as_str()
+            .unwrap()
+            .contains("reading mapping"),
+        "{report}"
+    );
+
+    let (code, _, _) = check(&[]);
+    assert_eq!(code, 2, "a missing --map is a usage error");
+}
+
+/// Run `stream` with telemetry to a local socket, calling `on_datagram` for each message as it
+/// arrives; returns every message and the process output.
+fn stream_telemetry(
+    args: &[&str],
+    mut on_datagram: impl FnMut(&serde_json::Value),
+) -> (Vec<serde_json::Value>, std::process::Output) {
+    let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    socket
+        .set_read_timeout(Some(std::time::Duration::from_millis(100)))
+        .unwrap();
+    let address = socket.local_addr().unwrap().to_string();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_reactive-vcr"))
+        .arg("stream")
+        .args(args)
+        .args([
+            "--telemetry",
+            &address,
+            "--telemetry-id",
+            "cam-1",
+            "--quiet",
+        ])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut messages = Vec::new();
+    let mut buffer = [0u8; 65_536];
+    let mut exited = false;
+    loop {
+        match socket.recv(&mut buffer) {
+            Ok(len) => {
+                assert!(len < 8192, "{len}-byte datagram");
+                let message: serde_json::Value = serde_json::from_slice(&buffer[..len]).unwrap();
+                on_datagram(&message);
+                messages.push(message);
+            }
+            // Drain once more after the process exits, then stop.
+            Err(_) if exited => break,
+            Err(_) => exited = child.try_wait().unwrap().is_some(),
+        }
+    }
+    (messages, child.wait_with_output().unwrap())
+}
+
+#[test]
+fn stream_sends_start_and_frame_telemetry() {
+    let dir = tempfile::tempdir().unwrap();
+    let map = dir.path().join("map.toml");
+    std::fs::copy(example("basic.toml"), &map).unwrap();
+    let map_arg = map.to_str().unwrap().to_owned();
+    let mut replaced = false;
+    let (messages, output) = stream_telemetry(
+        &[
+            "--map",
+            &map_arg,
+            "--video-source",
+            "videotestsrc is-live=true num-buffers=90 \
+             ! video/x-raw,width=160,height=120,framerate=30/1",
+            "--audio-source",
+            "audiotestsrc is-live=true wave=sine freq=110",
+            "--video-sink",
+            "fakesink",
+            "--lines",
+            "120",
+            "--telemetry-hz",
+            "10",
+        ],
+        |message| {
+            // Install a broken mapping the way a control server would: write, then rename.
+            if message["kind"] == "frame" && !replaced {
+                replaced = true;
+                let temp = map.with_extension("tmp");
+                std::fs::write(&temp, "[[modulate]]\ntarget = \"nope\"\nsource = \"rms\"\n")
+                    .unwrap();
+                std::fs::rename(&temp, &map).unwrap();
+            }
+        },
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let start = &messages[0];
+    assert_eq!(start["v"], 1);
+    assert_eq!(start["id"], "cam-1");
+    assert_eq!(start["kind"], "start");
+    assert_eq!(start["map"], map_arg.as_str());
+    assert_eq!(start["lines"], 120);
+    assert!(start["ts"].as_u64().unwrap() > 1_700_000_000_000);
+
+    let frames: Vec<_> = messages.iter().filter(|m| m["kind"] == "frame").collect();
+    assert!(frames.len() >= 5, "{} frame messages", frames.len());
+    let targets = [
+        "tracking_noise",
+        "tracking_noise_wave_intensity",
+        "tracking_noise_height",
+        "head_switching",
+        "head_switching_horizontal_shift",
+        "snow_intensity",
+        "chroma_noise_intensity",
+    ];
+    for frame in &frames {
+        assert_eq!(frame["id"], "cam-1");
+        assert_eq!(frame["v"], 1);
+        assert!(frame["frames"].as_u64().unwrap() >= 1, "{frame}");
+        assert!(frame["dropped"].as_u64().is_some(), "{frame}");
+        assert!(frame["fps"].as_f64().unwrap() > 0.0, "{frame}");
+        assert!(frame["proc_ms"].as_f64().unwrap() > 0.0, "{frame}");
+        let features = &frame["features"];
+        for value in [
+            &features["rms"],
+            &features["onset"],
+            &features["bands"]["bass"],
+            &features["bands"]["high"],
+        ] {
+            let value = value.as_f64().unwrap_or_else(|| panic!("{frame}"));
+            assert!((0.0..=1.0).contains(&value), "{frame}");
+        }
+        let applied = frame["targets"].as_object().unwrap();
+        assert_eq!(applied.len(), targets.len(), "{frame}");
+        for target in targets {
+            assert!(applied[target].is_number(), "{target}: {frame}");
+        }
+    }
+    // The 110 Hz tone fills the bass band.
+    assert!(
+        frames
+            .iter()
+            .any(|frame| frame["features"]["bands"]["bass"].as_f64().unwrap() > 0.5)
+    );
+
+    // At most 10 messages a second: any one-second span holds at most 11 (10 intervals).
+    let stamps: Vec<u64> = frames.iter().map(|f| f["ts"].as_u64().unwrap()).collect();
+    for (index, &first) in stamps.iter().enumerate() {
+        let within = stamps[index..].iter().take_while(|&&ts| ts < first + 1000);
+        assert!(within.count() <= 11, "frame messages at {stamps:?}");
+    }
+
+    // The broken mapping is reported while the last good one stays in effect.
+    assert!(frames[0]["mapping_error"].is_null());
+    let reported = frames
+        .iter()
+        .rev()
+        .find_map(|frame| frame["mapping_error"].as_str())
+        .expect("a frame reporting the reload error");
+    assert!(reported.contains("nope"), "{reported}");
+    assert_eq!(
+        frames.last().unwrap()["targets"].as_object().unwrap().len(),
+        7
+    );
+}
+
+#[test]
+fn stream_reports_a_fatal_error_over_telemetry() {
+    let (messages, output) = stream_telemetry(
+        &[
+            "--map",
+            example("basic.toml").to_str().unwrap(),
+            "--video-source",
+            "videotestsrc is-live=true num-buffers=30",
+            "--audio-source",
+            "nonexistentaudiosrc",
+            "--video-sink",
+            "fakesink",
+        ],
+        |_| {},
+    );
+    assert!(!output.status.success());
+    let error = messages
+        .iter()
+        .find(|m| m["kind"] == "error")
+        .expect("an error message");
+    assert_eq!(error["id"], "cam-1");
+    let message = error["message"].as_str().unwrap();
+    assert!(message.contains("nonexistentaudiosrc"), "{message}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    for part in message.split(": ") {
+        assert!(stderr.contains(part), "{part:?} missing from {stderr}");
+    }
+}

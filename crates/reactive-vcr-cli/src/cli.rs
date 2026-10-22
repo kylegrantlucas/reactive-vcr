@@ -23,7 +23,11 @@ pub enum Command {
     Stream(StreamArgs),
     /// Dump per-frame audio features and resulting parameter values as CSV.
     Analyze(AnalyzeArgs),
-    /// List every ntsc-rs and bender-rs parameter that can be targeted.
+    /// Compile a mapping as `stream` and `render` would, without opening any media.
+    ///
+    /// Exits 0 when the mapping is valid, 1 when it is invalid, and 2 when it can't be read
+    /// or the arguments are wrong.
+    Check(CheckArgs),
     Params {
         /// Emit JSON instead of a table.
         #[arg(long)]
@@ -151,6 +155,25 @@ pub struct StreamArgs {
     /// GStreamer audio sink; the default discards audio so a microphone can't feed back.
     #[arg(long, default_value = "fakesink")]
     pub audio_sink: String,
+    /// Send UDP JSON telemetry to HOST:PORT: a start message, frame state, and fatal errors.
+    #[arg(long, value_name = "HOST:PORT", requires = "telemetry_id")]
+    pub telemetry: Option<String>,
+    /// Identifies this stream in every telemetry message.
+    #[arg(long, value_name = "ID", requires = "telemetry")]
+    pub telemetry_id: Option<String>,
+    /// Most telemetry frame messages per second.
+    #[arg(long, value_name = "N", default_value_t = 15, requires = "telemetry",
+          value_parser = clap::value_parser!(u32).range(1..=1000))]
+    pub telemetry_hz: u32,
     #[arg(short, long)]
     pub quiet: bool,
+}
+
+#[derive(clap::Args, Debug)]
+pub struct CheckArgs {
+    #[arg(long)]
+    pub map: PathBuf,
+    /// Print one JSON line: `{"ok":true}` or `{"ok":false,"errors":[...]}`.
+    #[arg(long)]
+    pub json: bool,
 }

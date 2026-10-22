@@ -112,6 +112,8 @@ ffmpeg -re -i clip.mp4 -f yuv4mpegpipe - | reactive-vcr stream --map examples/ba
 
 Live mode reacts to what it has just heard and cannot look ahead the way `render` does. Levels adapt to the last 10 seconds of sound, and hits register one frame after they land.
 
+To run several streams from a control panel, validate each mapping with `reactive-vcr check --json` before installing it (write a temporary file and rename it over the mapping; the stream picks it up), and pass `--telemetry HOST:PORT --telemetry-id ID` to follow each stream's audio, modulated values, and health. See [Commands](#commands).
+
 ## Command line
 
 Render a clip with the included mapping:
@@ -171,9 +173,12 @@ reactive-vcr play    --video in.mp4 --audio song.wav --map fx.toml
 reactive-vcr stream  --map fx.toml [--lines 480]
                      [--video-source autovideosrc] [--audio-source autoaudiosrc]
                      [--video-sink autovideosink] [--audio-sink fakesink] [--quiet]
+                     [--telemetry HOST:PORT --telemetry-id ID [--telemetry-hz 15]]
 
 reactive-vcr analyze --audio song.wav --fps 29.97 --map fx.toml -o features.csv
                      [--start S] [--duration D]
+
+reactive-vcr check   --map fx.toml [--json]
 
 reactive-vcr params  [--json]
 ```
@@ -185,6 +190,14 @@ The output extension picks the codec: `.mp4` writes H.264 and AAC with the index
 The renderer resamples video to a constant frame rate taken from the first video stream. Variable-rate input may duplicate or drop frames, with duration rounded to a frame boundary. Pass the same rate to `analyze` when comparing its CSV with a render.
 
 `play` takes the same timeline and audio options. `--video-sink` and `--audio-sink` accept gst-launch descriptions, such as `"glimagesink"` or `"volume volume=0.5 ! autoaudiosink"`, and may start with caps to pick the format the sink receives, such as `"video/x-raw,format=I420 ! x264enc ! mpegtsmux ! udpsink host=… port=5000"` for an H.264 stream most players can decode.
+
+`check` compiles a mapping exactly as `stream` and `render` do, presets included, without opening any media. It exits 0 when the mapping is valid, 1 when it is invalid, and 2 when the file can't be read or the arguments are wrong. With `--json` it prints exactly one line unless the arguments are wrong: `{"ok":true}`, or `{"ok":false,"errors":[...]}` with one entry per problem the compiler found, or the whole error as a single entry when it stops at the first (an unreadable file or a TOML syntax error).
+
+`stream --telemetry HOST:PORT --telemetry-id ID` sends UDP datagrams, each one JSON object under 8 KiB with `"v":1`, the `id`, a `kind`, and `ts` in Unix milliseconds. Sending never blocks or slows the video; a datagram that can't go out is dropped.
+
+- `start`, once the pipeline plays: `map` (the mapping path) and `lines`.
+- `frame`, at most `--telemetry-hz` times a second (15 by default) as frames are processed: `frames` processed so far; `dropped`, the frames a live source's latency queue discarded (counted from the queue's `overrun` signal, always 0 for files and pipes); `fps` and `proc_ms`, the processed frame rate and the mean time per frame in analysis, modulation, and the effect over the last second; `features` with `rms`, `onset`, and each `[audio]` band by name under `bands`, as the modulations read them; `targets`, each modulated target's applied value by its name in the mapping; and `mapping_error`, the latest hot-reload error while the last good mapping stays in effect, or `null`.
+- `error`, before the stream exits on a fatal error: `message`, the error as printed on stderr, its causes joined with `: `.
 
 ## Mapping files
 

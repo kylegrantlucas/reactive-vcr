@@ -3279,6 +3279,7 @@ dependencies = [
  "gstreamer-video",
  "parking_lot",
  "reactive-vcr",
+ "serde_json",
  "tempfile",
 ]
 

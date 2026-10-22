@@ -230,6 +230,27 @@ impl LiveProgram {
         self.fps
     }
 
+    /// The normalized features the latest frame's modulations read; zeros before the first
+    /// frame and after a rebuild.
+    pub fn features(&self) -> &FrameFeatures {
+        &self.analyzer.features
+    }
+
+    /// The mapping's band names, in the order of [`FrameFeatures::bands`].
+    pub fn band_names(&self) -> impl Iterator<Item = &str> {
+        self.mapping.bands.iter().map(|(name, _)| name.as_str())
+    }
+
+    /// Each modulated target's name, as a mapping writes it, and its value as applied to the
+    /// latest frame.
+    pub fn targets(&self) -> impl Iterator<Item = (&'static str, f64)> + '_ {
+        self.modulator
+            .target_indices()
+            .iter()
+            .zip(self.modulator.last_values())
+            .map(|(&index, &value)| (self.catalog.param(index).name, value))
+    }
+
     /// Rebuild analysis and modulation for a new frame rate; a no-op if unchanged.
     pub fn set_fps(&mut self, fps: f64) {
         if fps != self.fps {
