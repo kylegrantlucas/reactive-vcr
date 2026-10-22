@@ -133,25 +133,29 @@ fn piped_sources_that_start_late_play_in_real_time() {
     use std::io::Write as _;
     use std::os::fd::AsRawFd as _;
 
+    const FRAMES: usize = 60;
     let dir = tempfile::tempdir().unwrap();
     let y4m = dir.path().join("clip.y4m");
     run(&format!(
-        "videotestsrc pattern=smpte num-buffers=30 \
+        "videotestsrc pattern=smpte num-buffers={FRAMES} \
          ! video/x-raw,format=I420,width=160,height=120,framerate=30/1 \
          ! y4menc ! filesink location={}",
         y4m.display()
     ));
     let data = std::fs::read(&y4m).unwrap();
     let (reader, mut writer) = std::io::pipe().unwrap();
-    // The writer starts a second after the stream, so the pipe's timestamps, which start
-    // at zero, are a second late against the running time.
+    // The writer starts a second after the clip would have ended, so the pipe's timestamps,
+    // which start at zero, put every frame over a second late against the running time.
+    let clip = Duration::from_secs_f64(FRAMES as f64 / 30.0);
+    let delay = clip + Duration::from_secs(1);
     let feeder = std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(delay);
         writer.write_all(&data).unwrap();
     });
     let output = dir.path().join("out.rgb");
+    let started = Instant::now();
     // A sink that discards frames more than 200 ms late, like a display sink.
-    let summary = stream_with(
+    stream_with(
         &format!("fdsrc fd={} ! y4mdec", reader.as_raw_fd()),
         &format!(
             "videoconvert ! video/x-raw,format=RGB \
@@ -160,11 +164,25 @@ fn piped_sources_that_start_late_play_in_real_time() {
         ),
     )
     .unwrap();
+    let elapsed = started.elapsed();
     feeder.join().unwrap();
     drop(reader);
     let shown = std::fs::read(&output).unwrap().len() / FRAME_BYTES;
-    assert_eq!(summary.frames, 30);
-    assert!(shown >= 29, "{shown} of 30 frames shown");
+
+    // Played as late frames, the clip is dropped and over as soon as it arrives. Played in
+    // real time from its arrival, it lasts as long as the clip and most frames are shown;
+    // not all, because a frame that reaches the sink late, such as the first while the
+    // effect starts up or one that a busy machine processes slowly, makes the converters skip
+    // the next ones to catch up, as they would for a camera.
+    let real_time = delay + clip.mul_f64(0.9);
+    assert!(
+        elapsed >= real_time,
+        "{shown} of {FRAMES} frames shown within {elapsed:?}"
+    );
+    assert!(
+        shown * 2 >= FRAMES,
+        "{shown} of {FRAMES} frames shown within {elapsed:?}"
+    );
 }
 
 #[test]

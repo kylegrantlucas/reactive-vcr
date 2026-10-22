@@ -3,35 +3,24 @@
 use crate::mapping::{self, CompiledMapping};
 use crate::params::ParamCatalog;
 use anyhow::Result;
+use std::hash::{DefaultHasher, Hasher as _};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
 /// Minimum time between checks of the watched files.
 pub const RELOAD_INTERVAL: Duration = Duration::from_millis(250);
 
-/// Modification time, size, and file identity. Identity tells a file renamed over the path,
-/// as atomic installs do, from the one it replaced even when both share a size and a coarse
-/// timestamp.
-type Stamp = Option<(SystemTime, u64, (u64, u64))>;
+/// Modification time, size, and a hash of the contents. The hash tells a file renamed over
+/// the path, as atomic installs do, from the one it replaced even when both share a size and
+/// a coarse timestamp, on every platform. Mappings and presets are a few KB, so reading them
+/// at each check costs microseconds.
+type Stamp = Option<(SystemTime, u64, u64)>;
 
 fn stamp(path: &Path) -> Stamp {
     let metadata = std::fs::metadata(path).ok()?;
-    Some((
-        metadata.modified().ok()?,
-        metadata.len(),
-        identity(&metadata),
-    ))
-}
-
-#[cfg(unix)]
-fn identity(metadata: &std::fs::Metadata) -> (u64, u64) {
-    use std::os::unix::fs::MetadataExt as _;
-    (metadata.dev(), metadata.ino())
-}
-
-#[cfg(not(unix))]
-fn identity(_: &std::fs::Metadata) -> (u64, u64) {
-    (0, 0)
+    let mut hasher = DefaultHasher::new();
+    hasher.write(&std::fs::read(path).ok()?);
+    Some((metadata.modified().ok()?, metadata.len(), hasher.finish()))
 }
 
 /// Loads a mapping and notices edits to it and its presets, including replacement by rename.
