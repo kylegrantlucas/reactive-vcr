@@ -4,9 +4,25 @@ All notable changes to reactive-vcr appear here. This project follows [Semantic 
 
 ## [Unreleased]
 
+### Added
+
+- `check` command: compiles a mapping exactly as `stream` and `render` do, without opening any media, and exits 0 when it is valid, 1 when it is invalid, and 2 when it can't be read. `--json` prints one line, `{"ok":true}` or `{"ok":false,"errors":[...]}` with one entry per problem.
+- `stream --telemetry HOST:PORT --telemetry-id ID [--telemetry-hz 15]`: UDP JSON telemetry for a control panel, with a `start` message, up to 15 `frame` messages a second (frames processed and dropped, frame rate, effect time, audio features, every modulated target's value, and the latest hot-reload error), and an `error` message before a fatal exit. Sending never blocks the video.
+- Core: `live::LiveProgram::features`, `band_names`, and `targets` report the latest frame's features and applied target values, and compile errors carry each problem as `mapping::MappingProblems`.
+- `stream --gate-db <dBFS>`: a noise gate on the driving audio. Below the threshold the input reads as silence, with every feature at 0 and no hits, and the quiet stretch stays out of the 10-second level reference, so an idle mixer's hiss no longer drives the picture and the next song reads as loud as the last. The gate opens above the threshold and closes 3 dB below it.
+- Telemetry frame messages carry `level_db`, the driving audio's level in dBFS to a tenth (`null` at digital silence), and `gated`, so a control panel can show an input meter and set the gate just above the noise floor.
+- Core: `live::LiveAnalyzer::set_gate` and `live::LiveProgram::set_gate`, with `gated` and `level_db`; `live::GATE_HYSTERESIS_DB` is 3 dB.
+
 ### Changed
 
 - The showcase site lives at https://klr.dev/reactive-vcr/: its canonical and social-card URLs, the README links, and the crate homepage point there, and the footer credits Kyle Lucas-Rodriguez.
+
+### Fixed
+
+- `stream` accepts file sources such as `filesrc location=clip.mp4 ! decodebin`, `uridecodebin`, or a demuxer and decoder. They failed at once with `not-linked`, because the element after the demuxer or decoder was taken as the source's input.
+- `stream` plays every frame of a file, pipe, or other non-live source at its own rate, starting when its first frame arrives. Only 3 of 300 frames of a non-live `videotestsrc` reached the effect, and a pipe from `ffmpeg -re` lost most of its frames to a synced sink. Cameras and other live sources still drop stale frames when the effect falls behind.
+- `--video-sink` and `--audio-sink` may start with caps, such as `video/x-raw,format=I420 ! x264enc ! ...`, so `x264enc` can encode 4:2:0 H.264 that most players decode instead of High 4:4:4 from the effect's RGB output.
+- Hot reload notices a mapping replaced by renaming another file over it even when both have the same size and modification time, as on filesystems with coarse timestamps, on every platform including Windows (it compares the files' contents), and no longer misses a replacement that lands while the mapping is being read.
 
 ## [0.5.0] - 2026-10-18
 

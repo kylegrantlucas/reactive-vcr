@@ -12,6 +12,7 @@ pub mod preview;
 pub mod probe;
 pub mod render;
 pub mod stream;
+pub mod telemetry;
 
 pub use filter::{Program, ReactiveFilter, frame_index};
 pub use init::{init, main_thread};

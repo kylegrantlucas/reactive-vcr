@@ -17,6 +17,7 @@ gstreamer-base.workspace = true
 gstreamer-pbutils.workspace = true
 gstreamer-video.workspace = true
 parking_lot.workspace = true
+serde_json.workspace = true
 
 # GStreamer video sinks on macOS need gst_macos_main (GStreamer 1.22+) to own the main thread.
 [target.'cfg(target_os = "macos")'.dependencies]

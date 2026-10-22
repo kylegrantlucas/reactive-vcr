@@ -101,7 +101,20 @@ This opens a window with your camera running through the deck and your microphon
 
 Any camera, microphone, or feed that GStreamer can open works as an input, and the result can go to a window or any GStreamer sink: see `--video-source`, `--audio-source`, `--video-sink`, and `--lines` (480 by default) under [Commands](#commands). The driving audio is not played back unless you set `--audio-sink`, so a microphone cannot feed back.
 
+A camera or other live feed always shows its newest frame: when the effect falls behind, stale frames are dropped so the picture stays current. A file or a pipe plays every frame at its own rate, starting from when its first frame arrives, so a clip can stand in for the camera while you tune a look:
+
+```sh
+reactive-vcr stream --map examples/basic.toml \
+  --video-source "filesrc location=clip.mp4 ! decodebin"
+ffmpeg -re -i clip.mp4 -f yuv4mpegpipe - | reactive-vcr stream --map examples/basic.toml \
+  --video-source "fdsrc fd=0 ! y4mdec"
+```
+
 Live mode reacts to what it has just heard and cannot look ahead the way `render` does. Levels adapt to the last 10 seconds of sound, and hits register one frame after they land.
+
+Because levels adapt, a quiet input eventually reads as loud: a mixer's master bus with no music carries only hiss, and after 10 seconds that hiss drives the picture as hard as the music did. `--gate-db` fixes this with a noise gate. While the input's level is below the gate, it counts as silence: every feature reads 0, no hits fire, and the quiet stretch doesn't lower the level the music is measured against, so the first song back reads as loud as the last one did. The gate opens when the level rises above `--gate-db` and closes again only once it falls 3 dB below, so a level hovering at the threshold doesn't flicker. Set it a few dB above the input's noise floor: stream with nothing playing, read `level_db` from [telemetry](#commands) (the hiss on one rig sat at -88 dBFS), and pass something like `--gate-db -80`, or `--gate-db -60` for a noisier room mic.
+
+To run several streams from a control panel, validate each mapping with `reactive-vcr check --json` before installing it (write a temporary file and rename it over the mapping; the stream picks it up), and pass `--telemetry HOST:PORT --telemetry-id ID` to follow each stream's audio, modulated values, and health. See [Commands](#commands).
 
 ## Command line
 
@@ -162,9 +175,13 @@ reactive-vcr play    --video in.mp4 --audio song.wav --map fx.toml
 reactive-vcr stream  --map fx.toml [--lines 480]
                      [--video-source autovideosrc] [--audio-source autoaudiosrc]
                      [--video-sink autovideosink] [--audio-sink fakesink] [--quiet]
+                     [--gate-db -60]
+                     [--telemetry HOST:PORT --telemetry-id ID [--telemetry-hz 15]]
 
 reactive-vcr analyze --audio song.wav --fps 29.97 --map fx.toml -o features.csv
                      [--start S] [--duration D]
+
+reactive-vcr check   --map fx.toml [--json]
 
 reactive-vcr params  [--json]
 ```
@@ -175,7 +192,17 @@ The output extension picks the codec: `.mp4` writes H.264 and AAC with the index
 
 The renderer resamples video to a constant frame rate taken from the first video stream. Variable-rate input may duplicate or drop frames, with duration rounded to a frame boundary. Pass the same rate to `analyze` when comparing its CSV with a render.
 
-`play` takes the same timeline and audio options. `--video-sink` and `--audio-sink` accept gst-launch descriptions, such as `"glimagesink"` or `"volume volume=0.5 ! autoaudiosink"`.
+`play` takes the same timeline and audio options. `--video-sink` and `--audio-sink` accept gst-launch descriptions, such as `"glimagesink"` or `"volume volume=0.5 ! autoaudiosink"`, and may start with caps to pick the format the sink receives, such as `"video/x-raw,format=I420 ! x264enc ! mpegtsmux ! udpsink host=… port=5000"` for an H.264 stream most players can decode.
+
+`check` compiles a mapping exactly as `stream` and `render` do, presets included, without opening any media. It exits 0 when the mapping is valid, 1 when it is invalid, and 2 when the file can't be read or the arguments are wrong. With `--json` it prints exactly one line unless the arguments are wrong: `{"ok":true}`, or `{"ok":false,"errors":[...]}` with one entry per problem the compiler found, or the whole error as a single entry when it stops at the first (an unreadable file or a TOML syntax error).
+
+`stream --telemetry HOST:PORT --telemetry-id ID` sends UDP datagrams, each one JSON object under 8 KiB with `"v":1`, the `id`, a `kind`, and `ts` in Unix milliseconds. Sending never blocks or slows the video; a datagram that can't go out is dropped.
+
+- `start`, once the pipeline plays: `map` (the mapping path) and `lines`.
+- `frame`, at most `--telemetry-hz` times a second (15 by default) as frames are processed: `frames` processed so far; `dropped`, the frames a live source's latency queue discarded (counted from the queue's `overrun` signal, always 0 for files and pipes); `fps` and `proc_ms`, the processed frame rate and the mean time per frame in analysis, modulation, and the effect over the last second; `features` with `rms`, `onset`, and each `[audio]` band by name under `bands`, as the modulations read them; `targets`, each modulated target's applied value by its name in the mapping; `mapping_error`, the latest hot-reload error while the last good mapping stays in effect, or `null`; `level_db`, the driving audio's RMS level in dBFS over the analysis window, to a tenth of a dB, whether or not it is gated, or `null` at digital silence; and `gated`, whether `--gate-db` is treating the input as silence.
+- `error`, before the stream exits on a fatal error: `message`, the error as printed on stderr, its causes joined with `: `.
+
+`--gate-db` takes a level in dBFS from -120 to 0. Negative values work as a separate argument (`--gate-db -60`) or joined (`--gate-db=-60`).
 
 ## Mapping files
 

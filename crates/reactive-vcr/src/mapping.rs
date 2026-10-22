@@ -664,6 +664,23 @@ impl CompiledMapping {
     }
 }
 
+/// Every problem [`compile`] found, one message each; displays as a single list.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MappingProblems(pub Vec<String>);
+
+impl std::fmt::Display for MappingProblems {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "mapping has {} problem(s):\n  - {}",
+            self.0.len(),
+            self.0.join("\n  - ")
+        )
+    }
+}
+
+impl std::error::Error for MappingProblems {}
+
 pub fn parse_source(s: &str, bands: &[(String, [f32; 2])]) -> Result<Source> {
     match s.trim() {
         "rms" => Ok(Source::Rms),
@@ -1041,11 +1058,7 @@ pub fn compile_with(
     }
 
     if !errors.is_empty() {
-        bail!(
-            "mapping has {} problem(s):\n  - {}",
-            errors.len(),
-            errors.join("\n  - ")
-        );
+        return Err(MappingProblems(errors).into());
     }
     Ok(CompiledMapping {
         preset_path,

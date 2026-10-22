@@ -57,20 +57,45 @@ pub fn make(factory: &str) -> Result<gst::Element> {
     })
 }
 
-/// A sink built from a gst-launch description, such as `autovideosink` or
-/// `volume volume=0.5 ! autoaudiosink`.
+/// A sink built from a gst-launch description, such as `autovideosink`,
+/// `volume volume=0.5 ! autoaudiosink`, or `video/x-raw,format=I420 ! x264enc ! ...`.
 pub fn sink(description: &str) -> Result<gst::Element> {
-    let bin = gst::parse::bin_from_description(description, true)
-        .with_context(|| format!("invalid GStreamer sink `{description}`"))?;
-    Ok(bin.upcast())
+    // A leading caps filter only parses between two elements, so start on a no-op one.
+    launch_bin(
+        &format!("identity ! {description}"),
+        gst::PadDirection::Sink,
+    )
+    .with_context(|| format!("invalid GStreamer sink `{description}`"))
 }
 
-/// A source built from a gst-launch description, such as `autovideosrc` or
-/// `videotestsrc is-live=true ! video/x-raw,framerate=30/1`.
+/// A source built from a gst-launch description, such as `autovideosrc`,
+/// `videotestsrc is-live=true ! video/x-raw,framerate=30/1`, or
+/// `filesrc location=clip.mp4 ! decodebin`.
 pub fn source(description: &str) -> Result<gst::Element> {
     // A trailing caps filter only parses between two elements, so end on a no-op one.
-    let bin = gst::parse::bin_from_description(&format!("{description} ! identity"), true)
-        .with_context(|| format!("invalid GStreamer source `{description}`"))?;
+    launch_bin(&format!("{description} ! identity"), gst::PadDirection::Src)
+        .with_context(|| format!("invalid GStreamer source `{description}`"))
+}
+
+/// A bin from a gst-launch description whose only pad ghosts its unlinked `direction` pad.
+///
+/// `gst::parse::bin_from_description` ghosts unlinked pads of both directions. A demuxer or
+/// decoder links to the next element only once its stream appears, so that element's input
+/// is still unlinked when the bin is built and would become the bin's own input instead,
+/// leaving the stream nowhere to go (`not-linked`).
+fn launch_bin(description: &str, direction: gst::PadDirection) -> Result<gst::Element> {
+    let bin = gst::parse::bin_from_description(description, false)?;
+    let (name, kind) = match direction {
+        gst::PadDirection::Sink => ("sink", "input"),
+        _ => ("src", "output"),
+    };
+    let target = bin
+        .find_unlinked_pad(direction)
+        .ok_or_else(|| anyhow!("no unlinked {kind}"))?;
+    let ghost = gst::GhostPad::builder_with_target(&target)?
+        .name(name)
+        .build();
+    bin.add_pad(&ghost)?;
     Ok(bin.upcast())
 }
 

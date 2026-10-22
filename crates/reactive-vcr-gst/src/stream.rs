@@ -4,8 +4,10 @@
 use crate::filter::{KEY_MESSAGE, ReactiveFilter, VIDEO_EOS_MESSAGE};
 use crate::media::{error_text, is_window_closed, make, sink, source};
 use crate::play::{BUS_POLL, Control, control_for};
+use crate::telemetry::{Telemetry, TelemetryOptions};
 use anyhow::{Context as _, Result, anyhow};
 use gstreamer as gst;
+use gstreamer::glib;
 use gstreamer::prelude::*;
 use gstreamer_app::{AppSink, AppSinkCallbacks};
 use gstreamer_video as gst_video;
@@ -16,6 +18,7 @@ use reactive_vcr::params::ParamCatalog;
 use reactive_vcr::watch::MappingWatcher;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
 
 /// Frame rate assumed until the video caps report one.
 const DEFAULT_FPS: f64 = 30.0;
@@ -33,6 +36,10 @@ pub struct StreamOptions {
     pub video_sink: String,
     /// GStreamer sink for the driving audio, such as `fakesink` or `autoaudiosink`.
     pub audio_sink: String,
+    /// Gate the driving audio's analysis at this level in dBFS; see `LiveProgram::set_gate`.
+    pub gate_db: Option<f32>,
+    /// Where to send UDP telemetry, if anywhere.
+    pub telemetry: Option<TelemetryOptions>,
     pub quiet: bool,
 }
 
@@ -43,24 +50,38 @@ pub struct StreamSummary {
 }
 
 /// Stream live video with the effect driven by live audio, until the video ends, the window
-/// closes, or the user quits.
+/// closes, or the user quits. With telemetry, a fatal error is also sent before returning.
 pub fn stream(o: &StreamOptions) -> Result<StreamSummary> {
+    let telemetry = o
+        .telemetry
+        .as_ref()
+        .map(Telemetry::connect)
+        .transpose()?
+        .map(Arc::new);
+    let result = run(o, telemetry.as_ref());
+    if let (Err(error), Some(telemetry)) = (&result, &telemetry) {
+        telemetry.error(&format!("{error:#}"));
+    }
+    result
+}
+
+fn run(o: &StreamOptions, telemetry: Option<&Arc<Telemetry>>) -> Result<StreamSummary> {
     crate::init()?;
     let catalog = Arc::new(ParamCatalog::new());
     let mut watcher = MappingWatcher::new(o.map.clone());
     let map = watcher.load(&catalog)?;
-    let live = Arc::new(Mutex::new(LiveProgram::new(
-        catalog.clone(),
-        Arc::new(map),
-        SAMPLE_RATE,
-        DEFAULT_FPS,
-    )));
+    let mut program = LiveProgram::new(catalog.clone(), Arc::new(map), SAMPLE_RATE, DEFAULT_FPS);
+    program.set_gate(o.gate_db);
+    let live = Arc::new(Mutex::new(program));
 
     let pipeline = gst::Pipeline::new();
     let filter = ReactiveFilter::new_live(live.clone());
     let video_sink = sink(&o.video_sink)?;
-    build_video(&pipeline, o, &filter, &video_sink)?;
+    let queue = build_video(&pipeline, o, &filter, &video_sink)?;
     build_audio(&pipeline, o, &live)?;
+    if let Some(telemetry) = telemetry {
+        observe(&filter, &queue, &live, telemetry);
+    }
 
     if !o.quiet {
         eprintln!(
@@ -70,35 +91,91 @@ pub fn stream(o: &StreamOptions) -> Result<StreamSummary> {
             o.map.display()
         );
     }
-    let result = event_loop(
-        &pipeline,
-        &video_sink,
-        &mut watcher,
-        &catalog,
-        &live,
-        o.quiet,
-    );
+    // Live sources don't preroll, so there is nothing to wait for before playing.
+    let result = pipeline
+        .set_state(gst::State::Playing)
+        .context("starting the stream")
+        .and_then(|_| {
+            if let Some(telemetry) = telemetry {
+                telemetry.start(&o.map, o.lines);
+            }
+            event_loop(
+                &pipeline,
+                &video_sink,
+                &mut watcher,
+                &catalog,
+                &live,
+                telemetry.map(Arc::as_ref),
+                o.quiet,
+            )
+        });
     let _ = pipeline.set_state(gst::State::Null);
     result.map(|()| StreamSummary {
         frames: filter.frames_processed(),
     })
 }
 
-/// `source ! queue(leaky, 1 buffer) ! videoconvert ! videoscale ! RGB at `lines` ! filter !
-/// videoconvert ! sink`. The leaky queue drops stale frames when processing falls behind
-/// capture, which bounds latency.
+/// Feed `telemetry` from the frame path: each frame's effect time and the frame count from
+/// `filter`, and every frame the latency queue discards.
+///
+/// The effect time runs from a frame entering `filter` to its result leaving, both on the
+/// streaming thread, so it covers live analysis, modulation, and the effect itself. A leaky
+/// queue holding at most one frame emits `overrun` once for each frame it discards; a
+/// non-leaky one emits it while it waits, which drops nothing and is not counted.
+fn observe(
+    filter: &ReactiveFilter,
+    queue: &gst::Element,
+    live: &Arc<Mutex<LiveProgram>>,
+    telemetry: &Arc<Telemetry>,
+) {
+    let entered = Arc::new(Mutex::new(None::<Instant>));
+    let input = filter.static_pad("sink").expect("filters have an input");
+    let output = filter.static_pad("src").expect("filters have an output");
+    {
+        let entered = entered.clone();
+        input.add_probe(gst::PadProbeType::BUFFER, move |_, _| {
+            *entered.lock() = Some(Instant::now());
+            gst::PadProbeReturn::Ok
+        });
+    }
+    {
+        let filter = filter.downgrade();
+        let live = live.clone();
+        let telemetry = telemetry.clone();
+        output.add_probe(gst::PadProbeType::BUFFER, move |_, _| {
+            if let (Some(filter), Some(entered)) = (filter.upgrade(), entered.lock().take()) {
+                telemetry.frame(entered.elapsed(), filter.frames_processed(), &live);
+            }
+            gst::PadProbeReturn::Ok
+        });
+    }
+    let telemetry = telemetry.clone();
+    queue.connect("overrun", false, move |args| {
+        let queue = args[0].get::<gst::Element>().ok()?;
+        let leaky = queue.property_value("leaky");
+        if glib::EnumValue::from_value(&leaky).is_some_and(|(_, value)| value.nick() != "no") {
+            telemetry.frame_dropped();
+        }
+        None
+    });
+}
+
+/// `source ! queue(1 buffer) ! videoconvert ! videoscale ! RGB at `lines` ! filter !
+/// videoconvert ! sink`; returns the queue. How the queue treats the source follows from
+/// whether it is live, which `pace_source` decides at its first frame.
 fn build_video(
     pipeline: &gst::Pipeline,
     o: &StreamOptions,
     filter: &ReactiveFilter,
     video_sink: &gst::Element,
-) -> Result<()> {
+) -> Result<gst::Element> {
     let queue = make("queue")?;
-    queue.set_property_from_str("leaky", "downstream");
     queue.set_property("max-size-buffers", 1u32);
     queue.set_property("max-size-bytes", 0u32);
     queue.set_property("max-size-time", 0u64);
-    let mut elements = vec![source(&o.video_source)?, queue];
+    let source = source(&o.video_source)?;
+    pace_source(&source, &queue);
+    let mut elements = vec![source, queue.clone()];
     for factory in ["videoconvert", "videoscale"] {
         let element = make(factory)?;
         element.set_property("n-threads", 0u32);
@@ -119,7 +196,57 @@ fn build_video(
     elements.push(video_sink.clone());
     pipeline.add_many(&elements)?;
     gst::Element::link_many(&elements)?;
-    Ok(())
+    Ok(queue)
+}
+
+/// At the source's first frame, ask upstream whether it is live.
+///
+/// A live source, such as a camera, keeps capturing whether or not anyone keeps up, so the
+/// queue becomes leaky and drops stale frames when processing falls behind, which bounds
+/// latency. A non-live source, such as a file or a pipe, produces as fast as it is consumed,
+/// so the queue holds it back and the sink paces every frame by its timestamp. Its
+/// timestamps start at zero whenever its first frame arrives, which may be well after the
+/// stream started; when that frame is late, the source's output is offset by the lateness
+/// so it plays from that moment in real time instead of being dropped as late.
+fn pace_source(source: &gst::Element, queue: &gst::Element) {
+    let output = source.static_pad("src").expect("sources have an output");
+    let source = source.downgrade();
+    let queue = queue.downgrade();
+    output.add_probe(gst::PadProbeType::BUFFER, move |pad, info| {
+        let mut latency = gst::query::Latency::new();
+        // A source that can't say keeps the latency-bounding behavior.
+        let live = !pad.query(&mut latency) || latency.result().0;
+        if live {
+            if let Some(queue) = queue.upgrade() {
+                queue.set_property_from_str("leaky", "downstream");
+            }
+        } else if let Some(buffer) = info.buffer()
+            && let Some(source) = source.upgrade()
+            && let Some(late) = lateness(pad, &source, buffer)
+        {
+            pad.set_offset(late.nseconds() as i64);
+        }
+        gst::PadProbeReturn::Remove
+    });
+}
+
+/// How far `buffer`, about to leave `pad` of `source`, is behind the running time, if at all.
+fn lateness(
+    pad: &gst::Pad,
+    source: &gst::Element,
+    buffer: &gst::BufferRef,
+) -> Option<gst::ClockTime> {
+    // Before it plays, the source has no running time yet and its base time may be stale.
+    if source.current_state() != gst::State::Playing {
+        return None;
+    }
+    let now = source.clock()?.time().checked_sub(source.base_time()?)?;
+    let segment = pad.sticky_event::<gst::event::Segment>(0)?;
+    let due = segment
+        .segment()
+        .downcast_ref::<gst::ClockTime>()?
+        .to_running_time(buffer.pts()?)?;
+    now.checked_sub(due).filter(|late| !late.is_zero())
 }
 
 /// `source ! tee`, with one branch analyzed as mono f32 at `SAMPLE_RATE` and one sent to the
@@ -182,12 +309,9 @@ fn event_loop(
     watcher: &mut MappingWatcher,
     catalog: &ParamCatalog,
     live: &Mutex<LiveProgram>,
+    telemetry: Option<&Telemetry>,
     quiet: bool,
 ) -> Result<()> {
-    // Live sources don't preroll, so there is nothing to wait for before playing.
-    pipeline
-        .set_state(gst::State::Playing)
-        .context("starting the stream")?;
     let bus = pipeline.bus().expect("pipelines have a bus");
     loop {
         if let Some(message) = bus.timed_pop(BUS_POLL) {
@@ -219,11 +343,17 @@ fn event_loop(
         match watcher.poll(catalog) {
             Some(Ok(map)) => {
                 live.lock().set_mapping(Arc::new(map));
+                if let Some(telemetry) = telemetry {
+                    telemetry.set_mapping_error(None);
+                }
                 if !quiet {
                     eprintln!("reloaded {}", watcher.path().display());
                 }
             }
             Some(Err(error)) => {
+                if let Some(telemetry) = telemetry {
+                    telemetry.set_mapping_error(Some(format!("{error:#}")));
+                }
                 eprintln!("{error:#}\nkeeping the previous mapping until the next edit");
             }
             None => {}
