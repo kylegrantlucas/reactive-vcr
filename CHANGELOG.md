@@ -12,6 +12,7 @@ All notable changes to reactive-vcr appear here. This project follows [Semantic 
 - `stream --gate-db <dBFS>`: a noise gate on the driving audio. Below the threshold the input reads as silence, with every feature at 0 and no hits, and the quiet stretch stays out of the 10-second level reference, so an idle mixer's hiss no longer drives the picture and the next song reads as loud as the last. The gate opens above the threshold and closes 3 dB below it.
 - Telemetry frame messages carry `level_db`, the driving audio's level in dBFS to a tenth (`null` at digital silence), and `gated`, so a control panel can show an input meter and set the gate just above the noise floor.
 - Core: `live::LiveAnalyzer::set_gate` and `live::LiveProgram::set_gate`, with `gated` and `level_db`; `live::GATE_HYSTERESIS_DB` is 3 dB.
+- `stream --video-threads N` bounds converter/scaler workers, and `--encode-queue` optionally overlaps effect processing with conversion/encoding through a one-frame queue. Both are opt-in; existing callers keep their current scheduling.
 
 ### Changed
 

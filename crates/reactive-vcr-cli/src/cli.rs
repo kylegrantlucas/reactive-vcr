@@ -149,6 +149,12 @@ pub struct StreamArgs {
     /// Processing height in lines; width follows the source's aspect ratio.
     #[arg(long, default_value_t = 480, value_parser = clap::value_parser!(u32).range(2..=2160))]
     pub lines: u32,
+    /// Workers per video converter/scaler (0: automatic); omitted keeps existing defaults.
+    #[arg(long, value_parser = clap::value_parser!(u32).range(0..=64))]
+    pub video_threads: Option<u32>,
+    /// Overlap the effect with conversion/encoding; can add one frame of latency.
+    #[arg(long)]
+    pub encode_queue: bool,
     /// GStreamer video sink, as a gst-launch description.
     #[arg(long, default_value = "autovideosink")]
     pub video_sink: String,

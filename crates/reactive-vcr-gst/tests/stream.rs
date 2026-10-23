@@ -10,6 +10,8 @@ const LIVE_AUDIO: &str = "audiotestsrc is-live=true wave=silence";
 
 fn stream_with(video_source: &str, video_sink: &str) -> anyhow::Result<StreamSummary> {
     stream(&StreamOptions {
+        video_threads: None,
+        encode_queue: false,
         map: example("basic.toml"),
         video_source: video_source.into(),
         audio_source: LIVE_AUDIO.into(),
@@ -25,9 +27,11 @@ fn stream_with(video_source: &str, video_sink: &str) -> anyhow::Result<StreamSum
 fn stream_frames(dir: &Path, name: &str, audio_source: &str) -> Vec<Vec<u8>> {
     let output = dir.join(name);
     let options = StreamOptions {
+        video_threads: None,
+        encode_queue: false,
         map: example("basic.toml"),
         video_source: "videotestsrc is-live=true pattern=smpte num-buffers=30 \
-                       ! video/x-raw,width=160,height=120,framerate=30/1"
+                   ! video/x-raw,width=160,height=120,framerate=30/1"
             .into(),
         audio_source: audio_source.into(),
         lines: 120,
@@ -79,13 +83,15 @@ fn explicit_audio_sink_receives_the_driving_audio() {
     let dir = tempfile::tempdir().unwrap();
     let output = dir.path().join("monitor.f32");
     let summary = stream(&StreamOptions {
+        video_threads: None,
+        encode_queue: false,
         map: example("basic.toml"),
         video_source: "videotestsrc num-buffers=30 \
-                       ! video/x-raw,width=160,height=120,framerate=30/1"
+                   ! video/x-raw,width=160,height=120,framerate=30/1"
             .into(),
         audio_source: "audiotestsrc wave=sine freq=110 volume=1.0 \
-                       samplesperbuffer=480 num-buffers=10 \
-                       ! audio/x-raw,format=F32LE,channels=1,rate=48000"
+                   samplesperbuffer=480 num-buffers=10 \
+                   ! audio/x-raw,format=F32LE,channels=1,rate=48000"
             .into(),
         lines: 120,
         video_sink: "fakesink sync=true".into(),
@@ -269,4 +275,56 @@ fn encoded_output_drains_after_video_ends_with_live_audio() {
         32 * FRAME_BYTES,
         "the encoder and muxer must drain every decoded frame"
     );
+}
+
+#[test]
+fn converter_workers_and_encoder_queue_preserve_ordered_frames() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut reference = None;
+    for (index, (video_threads, encode_queue)) in [
+        (None, false),
+        (Some(1), false),
+        (Some(2), false),
+        (Some(1), true),
+        (Some(2), true),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let output = dir.path().join(format!("frames-{index}.i420"));
+        let result = stream(&StreamOptions {
+            map: example("basic.toml"),
+            video_source: "videotestsrc pattern=ball num-buffers=12 \
+                ! video/x-raw,format=I420,width=32,height=24,framerate=12/1"
+                .into(),
+            audio_source: LIVE_AUDIO.into(),
+            lines: 24,
+            video_threads,
+            encode_queue,
+            video_sink: format!(
+                "video/x-raw,format=I420 ! filesink location={}",
+                output.display()
+            ),
+            audio_sink: "fakesink".into(),
+            gate_db: Some(-60.0),
+            telemetry: None,
+            quiet: true,
+        })
+        .unwrap();
+        assert_eq!(result.frames, 12, "no input frame may be lost");
+        let bytes = std::fs::read(output).unwrap();
+        assert_eq!(
+            bytes.len(),
+            12 * 32 * 24 * 3 / 2,
+            "all encoded raw frames must drain"
+        );
+        if let Some(expected) = &reference {
+            assert_eq!(
+                &bytes, expected,
+                "workers={video_threads:?}, queue={encode_queue}"
+            );
+        } else {
+            reference = Some(bytes);
+        }
+    }
 }

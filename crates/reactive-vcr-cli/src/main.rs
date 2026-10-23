@@ -65,6 +65,8 @@ fn run(cli: Cli) -> Result<()> {
                 video_source: args.video_source,
                 audio_source: args.audio_source,
                 lines: args.lines,
+                video_threads: args.video_threads,
+                encode_queue: args.encode_queue,
                 video_sink: args.video_sink,
                 audio_sink: args.audio_sink,
                 gate_db: args.gate_db,

@@ -32,6 +32,11 @@ pub struct StreamOptions {
     pub audio_source: String,
     /// Processing height; the width follows the source's aspect ratio.
     pub lines: u32,
+    /// Converter/scaler workers; None preserves the existing per-stage defaults.
+    /// Some(0) asks GStreamer to use every available core.
+    pub video_threads: Option<u32>,
+    /// Overlap effects with output conversion/encoding using one bounded frame.
+    pub encode_queue: bool,
     /// GStreamer video sink description, such as `autovideosink`.
     pub video_sink: String,
     /// GStreamer sink for the driving audio, such as `fakesink` or `autoaudiosink`.
@@ -178,7 +183,7 @@ fn build_video(
     let mut elements = vec![source, queue.clone()];
     for factory in ["videoconvert", "videoscale"] {
         let element = make(factory)?;
-        element.set_property("n-threads", 0u32);
+        element.set_property("n-threads", o.video_threads.unwrap_or(0));
         elements.push(element);
     }
     let caps = gst_video::VideoCapsBuilder::new()
@@ -192,7 +197,18 @@ fn build_video(
             .context("GStreamer element `capsfilter` is unavailable")?,
     );
     elements.push(filter.clone().upcast());
-    elements.push(make("videoconvert")?);
+    if o.encode_queue {
+        let output_queue = make("queue")?;
+        output_queue.set_property("max-size-buffers", 1u32);
+        output_queue.set_property("max-size-bytes", 0u32);
+        output_queue.set_property("max-size-time", 0u64);
+        elements.push(output_queue);
+    }
+    let output_convert = make("videoconvert")?;
+    if let Some(threads) = o.video_threads {
+        output_convert.set_property("n-threads", threads);
+    }
+    elements.push(output_convert);
     elements.push(video_sink.clone());
     pipeline.add_many(&elements)?;
     gst::Element::link_many(&elements)?;

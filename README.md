@@ -176,6 +176,7 @@ reactive-vcr stream  --map fx.toml [--lines 480]
                      [--video-source autovideosrc] [--audio-source autoaudiosrc]
                      [--video-sink autovideosink] [--audio-sink fakesink] [--quiet]
                      [--gate-db -60]
+                     [--video-threads N] [--encode-queue]
                      [--telemetry HOST:PORT --telemetry-id ID [--telemetry-hz 15]]
 
 reactive-vcr analyze --audio song.wav --fps 29.97 --map fx.toml -o features.csv
@@ -193,6 +194,12 @@ The output extension picks the codec: `.mp4` writes H.264 and AAC with the index
 The renderer resamples video to a constant frame rate taken from the first video stream. Variable-rate input may duplicate or drop frames, with duration rounded to a frame boundary. Pass the same rate to `analyze` when comparing its CSV with a render.
 
 `play` takes the same timeline and audio options. `--video-sink` and `--audio-sink` accept gst-launch descriptions, such as `"glimagesink"` or `"volume volume=0.5 ! autoaudiosink"`, and may start with caps to pick the format the sink receives, such as `"video/x-raw,format=I420 ! x264enc ! mpegtsmux ! udpsink host=… port=5000"` for an H.264 stream most players can decode.
+
+`stream --video-threads N` sets the worker count of its video converters and
+scaler (0 requests automatic sizing). Omitting it preserves the existing
+per-stage defaults. `--encode-queue` overlaps the effect with output conversion
+and encoding through a non-leaky, one-frame queue. It can add a frame of latency;
+measure it on the target machine rather than enabling it unconditionally.
 
 `check` compiles a mapping exactly as `stream` and `render` do, presets included, without opening any media. It exits 0 when the mapping is valid, 1 when it is invalid, and 2 when the file can't be read or the arguments are wrong. With `--json` it prints exactly one line unless the arguments are wrong: `{"ok":true}`, or `{"ok":false,"errors":[...]}` with one entry per problem the compiler found, or the whole error as a single entry when it stops at the first (an unreadable file or a TOML syntax error).
 
