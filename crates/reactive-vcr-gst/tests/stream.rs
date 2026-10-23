@@ -328,3 +328,50 @@ fn converter_workers_and_encoder_queue_preserve_ordered_frames() {
         }
     }
 }
+
+#[test]
+fn processing_height_scales_the_raster_without_changing_display_aspect() {
+    let dir = tempfile::tempdir().unwrap();
+    for (name, input_width, height, par, lines, ideal_width) in [
+        ("ntsc", 720, 480, "1/1", 360, 540.0),
+        ("anamorphic", 720, 480, "8/9", 360, 480.0),
+        ("pal", 720, 576, "1/1", 360, 450.0),
+        ("hd", 1920, 1080, "1/1", 480, 1920.0 * 480.0 / 1080.0),
+    ] {
+        let output = dir.path().join(format!("{name}.y4m"));
+        let summary = stream(&StreamOptions {
+            map: example("basic.toml"),
+            video_source: format!(
+                "videotestsrc num-buffers=1 ! video/x-raw,width={input_width},height={height},\
+                 pixel-aspect-ratio={par},framerate=30/1"
+            ),
+            audio_source: LIVE_AUDIO.into(),
+            lines,
+            video_threads: Some(1),
+            encode_queue: false,
+            video_sink: format!(
+                "video/x-raw,format=I420 ! y4menc ! filesink location={}",
+                output.display()
+            ),
+            audio_sink: "fakesink".into(),
+            gate_db: Some(-60.0),
+            telemetry: None,
+            quiet: true,
+        })
+        .unwrap();
+        assert_eq!(summary.frames, 1);
+        let (info, _) = common::decoded(&output, "identity");
+        assert_eq!(info.height(), lines, "{name}");
+        assert_eq!(info.width() % 2, 0, "4:2:0 encoder width: {name}");
+        // An even raster quantizes the ideal width by less than one two-pixel step.
+        assert!(
+            (f64::from(info.width()) - ideal_width).abs() < 2.0,
+            "{name}"
+        );
+        assert_eq!(
+            info.par(),
+            reactive_vcr_gst::gst::Fraction::new(1, 1),
+            "{name}"
+        );
+    }
+}

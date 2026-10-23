@@ -189,6 +189,9 @@ fn build_video(
     let caps = gst_video::VideoCapsBuilder::new()
         .format(gst_video::VideoFormat::Rgb)
         .height(o.lines as i32)
+        // Constrain the actual raster, not only PAR; keep 4:2:0 encoder widths valid.
+        .pixel_aspect_ratio(gst::Fraction::new(1, 1))
+        .field("width", gst::IntRange::<i32>::with_step(2, i32::MAX - 1, 2))
         .build();
     elements.push(
         gst::ElementFactory::make("capsfilter")

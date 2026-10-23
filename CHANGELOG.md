@@ -20,6 +20,7 @@ All notable changes to reactive-vcr appear here. This project follows [Semantic 
 - Per-frame settings skip composite, luma, and chroma noise passes when their intensity is exactly zero, without cloning extra settings or changing nonzero noise seeds. Mapping settings and reported modulation values are preserved.
 - `stream` omits the unused audio monitor branch, tee, and queues when `--audio-sink` is exactly the default `fakesink`. Audio analysis keeps its existing caps and source-driven pacing; explicitly configured audio sinks retain their monitor branch.
 - Bender frames use its packed RGB interface directly, removing the two RGBA scratch frames and RGB/RGBA copies. Colour conversion, stage state, seeds, and intermediate RGB rounding remain unchanged.
+- `stream --lines` now scales the actual processing raster proportionally using square pixels and an even width, instead of retaining input width and changing pixel aspect ratio. Display aspect is preserved within raster rounding; lower processing heights therefore reduce work in both dimensions.
 
 ### Fixed
 

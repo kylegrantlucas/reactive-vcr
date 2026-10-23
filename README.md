@@ -100,6 +100,11 @@ reactive-vcr stream --map examples/basic.toml
 This opens a window with your camera running through the deck and your microphone driving it. Clap and watch it answer. Edit the mapping while it runs and the look changes live; press Q to stop. On macOS, the first run asks for camera and microphone access.
 
 Any camera, microphone, or feed that GStreamer can open works as an input, and the result can go to a window or any GStreamer sink: see `--video-source`, `--audio-source`, `--video-sink`, and `--lines` (480 by default) under [Commands](#commands). The driving audio is not played back unless you set `--audio-sink`, so a microphone cannot feed back.
+`--lines` sets a square-pixel processing raster with an even width, preserving
+the input's display aspect ratio to the nearest raster step. For example,
+720×480 square-pixel input at `--lines 360` becomes 540×360, not 720×360 with
+stretched pixels. This reduces work in both dimensions; it trades detail for
+headroom. `render` and `play` keep their existing pixel-aspect behavior.
 
 A camera or other live feed always shows its newest frame: when the effect falls behind, stale frames are dropped so the picture stays current. A file or a pipe plays every frame at its own rate, starting from when its first frame arrives, so a clip can stand in for the camera while you tune a look:
 
