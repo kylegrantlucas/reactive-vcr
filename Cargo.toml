@@ -14,7 +14,7 @@ publish = false
 reactive-vcr = { path = "crates/reactive-vcr" }
 reactive-vcr-gst = { path = "crates/reactive-vcr-gst" }
 anyhow = "1.0.104"
-bender = { git = "https://github.com/kylegrantlucas/bender-rs", rev = "e5b754c2bbea7ab924c078f857241c7a23c17ea1", version = "0.2.0" }
+bender = { git = "https://github.com/kylegrantlucas/bender-rs", rev = "131444dbb28f113881f78f712864f195319015c2", version = "0.2.0" }
 clap = { version = "4.6.7", features = ["derive"] }
 eframe = { version = "0.37", features = ["persistence"] }
 gstreamer = "0.25.4"

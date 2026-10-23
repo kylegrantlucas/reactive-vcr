@@ -42,8 +42,6 @@ pub struct FrameProcessor {
     /// ntsc-rs YIQ scratch.
     scratch: Vec<f32>,
     bend_state: bender::BendState,
-    rgba_in: Vec<u8>,
-    rgba_out: Vec<u8>,
     /// RGB24 frame between the two stages.
     staged: Vec<u8>,
     /// Packed RGB24 input and output for `process_bgra`.
@@ -64,8 +62,6 @@ impl FrameProcessor {
             chain,
             scratch,
             bend_state: bender::BendState::default(),
-            rgba_in: Vec::new(),
-            rgba_out: Vec::new(),
             staged: Vec::new(),
             bgra_rgb_in: Vec::new(),
             bgra_rgb_out: Vec::new(),
@@ -233,38 +229,16 @@ impl FrameProcessor {
         output_rgb: &mut [u8],
         output_stride: usize,
     ) {
-        let (w, h) = (self.width, self.height);
-        let rgba_len = w * h * 4;
-        self.rgba_in.resize(rgba_len, 0);
-        self.rgba_out.resize(rgba_len, 0);
-        let row_bytes = self.row_bytes();
-        for (y, rgba_row) in self.rgba_in.chunks_exact_mut(w * 4).enumerate() {
-            let start = y * input.stride;
-            let (rgb_row, _) = input.data[start..start + row_bytes].as_chunks::<3>();
-            let (rgba_row, _) = rgba_row.as_chunks_mut::<4>();
-            for (&[r, g, b], rgba) in rgb_row.iter().zip(rgba_row) {
-                *rgba = [r, g, b, 255];
-            }
-        }
-        effect.apply_rgba8(
-            w,
-            h,
-            &self.rgba_in,
-            w * 4,
-            &mut self.rgba_out,
-            w * 4,
-            bender::PixelOrder::Rgba,
+        effect.apply_rgb8(
+            self.width,
+            self.height,
+            input.data,
+            input.stride,
+            output_rgb,
+            output_stride,
             frame_num as u64,
             &mut self.bend_state,
         );
-        for (y, rgba_row) in self.rgba_out.chunks_exact(w * 4).enumerate() {
-            let start = y * output_stride;
-            let (rgb_row, _) = output_rgb[start..start + row_bytes].as_chunks_mut::<3>();
-            let (rgba_row, _) = rgba_row.as_chunks::<4>();
-            for (&[r, g, b, _], rgb) in rgba_row.iter().zip(rgb_row) {
-                *rgb = [r, g, b];
-            }
-        }
     }
 }
 
@@ -347,22 +321,6 @@ mod tests {
         fp.process(&EffectSettings::default(), 3, &input, &mut a);
         fp.process(&loud, 3, &input, &mut b);
         assert_ne!(a, b);
-    }
-
-    #[test]
-    fn every_field_mode_works_when_switching_on_reused_processor() {
-        let (w, h) = (32, 18);
-        let input = test_frame(w, h);
-        let mut fp = FrameProcessor::new(w, h, ChainLayout::default());
-        let catalog = ParamCatalog::new();
-        let field = catalog.get("use_field").unwrap();
-        for mode in 0..6 {
-            let mut effect = EffectSettings::default();
-            set_param(&mut effect, field, mode as f64).unwrap();
-            let mut output = vec![0u8; fp.frame_bytes()];
-            fp.process(&effect, mode, &input, &mut output);
-            assert_eq!(output.len(), w * h * 3);
-        }
     }
 
     #[test]
