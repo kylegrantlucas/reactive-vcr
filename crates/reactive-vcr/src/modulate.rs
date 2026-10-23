@@ -113,10 +113,11 @@ impl Modulator {
         sample: impl Fn(Source) -> f32,
     ) -> EffectSettings {
         self.step(sample);
-        let effect = apply_targets(catalog, base, &self.targets, &self.values);
+        let mut effect = apply_targets(catalog, base, &self.targets, &self.values);
         for (target, &param_index) in self.targets.iter().enumerate() {
             self.last_values[target] = get_param(&effect, catalog.param(param_index));
         }
+        skip_zero_noise(&mut effect);
         effect
     }
 }
@@ -134,6 +135,20 @@ fn apply_targets(
             .expect("catalog parameter accepts bounded value");
     }
     effect
+}
+
+/// Prune only stateless, exactly-zero noise on the already-owned frame settings.
+/// ntsc-rs seeds each pass independently, so this does not advance another pass's RNG.
+fn skip_zero_noise(effect: &mut EffectSettings) {
+    for noise in [
+        &mut effect.ntsc.composite_noise,
+        &mut effect.ntsc.luma_noise,
+        &mut effect.ntsc.chroma_noise,
+    ] {
+        if noise.settings.intensity == 0.0 {
+            noise.enabled = false;
+        }
+    }
 }
 
 /// Every frame's modulated values, precomputed for random access during playback.
@@ -179,17 +194,20 @@ impl Schedule {
 
     /// The effect for `frame`; frames past the end hold the last frame's values.
     pub fn effect(&self, catalog: &ParamCatalog, frame: usize) -> EffectSettings {
-        if self.frames == 0 {
-            return self.base.clone();
-        }
-        let count = self.targets.len();
-        let start = frame.min(self.frames - 1) * count;
-        apply_targets(
-            catalog,
-            &self.base,
-            &self.targets,
-            &self.values[start..start + count],
-        )
+        let mut effect = if self.frames == 0 {
+            self.base.clone()
+        } else {
+            let count = self.targets.len();
+            let start = frame.min(self.frames - 1) * count;
+            apply_targets(
+                catalog,
+                &self.base,
+                &self.targets,
+                &self.values[start..start + count],
+            )
+        };
+        skip_zero_noise(&mut effect);
+        effect
     }
 }
 
@@ -223,6 +241,99 @@ mod tests {
             onset_sensitivity: 1.5,
             modulations: mods,
         }
+    }
+
+    #[test]
+    fn zero_noise_pruning_preserves_images_in_every_field_mode() {
+        use crate::effect::FrameProcessor;
+
+        let catalog = ParamCatalog::new();
+        let (w, h) = (32, 18);
+        let input: Vec<u8> = (0..w * h * 3).map(|i| (i * 37 % 256) as u8).collect();
+        let timeline = features(vec![0.0; 3], vec![0.0; 3]);
+        let empty = features(vec![], vec![]);
+        for mode in 0..6 {
+            // Every combination of zero/nonzero passes tests independent RNG streams.
+            for mask in 0..8 {
+                let mut map = mapping(vec![]);
+                set_param(
+                    &mut map.base,
+                    catalog.get("use_field").unwrap(),
+                    mode as f64,
+                )
+                .unwrap();
+                map.base.ntsc.random_seed = 12345;
+                for (index, noise) in [
+                    &mut map.base.ntsc.composite_noise,
+                    &mut map.base.ntsc.luma_noise,
+                    &mut map.base.ntsc.chroma_noise,
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    noise.enabled = true;
+                    noise.settings.intensity = if mask & (1 << index) != 0 {
+                        0.05
+                    } else if index == 1 {
+                        -0.0
+                    } else {
+                        0.0
+                    };
+                }
+                let schedule = Schedule::build(&catalog, &map, &timeline, 30.0);
+                let empty_schedule = Schedule::build(&catalog, &map, &empty, 30.0);
+                let mut modulator = Modulator::new(&catalog, &map, 30.0);
+                let mut reference = FrameProcessor::new(w, h, map.chain);
+                let mut optimized = FrameProcessor::new(w, h, map.chain);
+                let mut expected = vec![0; input.len()];
+                let mut actual = vec![0; input.len()];
+                for frame in [0, 1, 17] {
+                    reference.process(&map.base, frame, &input, &mut expected);
+                    for effect in [
+                        modulator.effect(&catalog, &map.base, |_| 0.0),
+                        schedule.effect(&catalog, frame),
+                        empty_schedule.effect(&catalog, frame),
+                    ] {
+                        for (index, noise) in [
+                            &effect.ntsc.composite_noise,
+                            &effect.ntsc.luma_noise,
+                            &effect.ntsc.chroma_noise,
+                        ]
+                        .into_iter()
+                        .enumerate()
+                        {
+                            assert_eq!(noise.enabled, mask & (1 << index) != 0);
+                        }
+                        optimized.process(&effect, frame, &input, &mut actual);
+                        assert_eq!(actual, expected, "mode {mode}, mask {mask}, frame {frame}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn noise_modulation_can_resume_after_zero_without_changing_reported_targets() {
+        let catalog = ParamCatalog::new();
+        let map = mapping(vec![
+            m(&catalog, "luma_noise_intensity", Source::Rms, (0.0, 0.05)),
+            m(&catalog, "luma_noise", Source::Onset, (0.0, 1.0)),
+        ]);
+        let mut modulator = Modulator::new(&catalog, &map, 30.0);
+        for sample in [0.0, 1.0, 0.0, 1.0] {
+            let effect = modulator.effect(&catalog, &map.base, |source| match source {
+                Source::Rms => sample,
+                _ => 1.0,
+            });
+            assert_eq!(effect.ntsc.luma_noise.enabled, sample != 0.0);
+            assert_eq!(modulator.last_values()[1], 1.0);
+            assert!(map.base.ntsc.luma_noise.enabled);
+        }
+        let mut disabled_map = mapping(vec![]);
+        disabled_map.base.ntsc.luma_noise.enabled = false;
+        let mut modulator = Modulator::new(&catalog, &disabled_map, 30.0);
+        let effect = modulator.effect(&catalog, &disabled_map.base, |_| 1.0);
+        assert!(!effect.ntsc.luma_noise.enabled);
     }
 
     fn m(c: &ParamCatalog, target: &str, source: Source, range: (f32, f32)) -> CompiledModulation {
