@@ -22,6 +22,7 @@ All notable changes to reactive-vcr appear here. This project follows [Semantic 
 
 ### Fixed
 
+- `stream` drains downstream queues, encoders, and muxers when finite video ends, stopping live audio and waiting for pipeline EOS. It previously stopped at the effect's EOS notification and could truncate encoded files.
 - `stream` accepts file sources such as `filesrc location=clip.mp4 ! decodebin`, `uridecodebin`, or a demuxer and decoder. They failed at once with `not-linked`, because the element after the demuxer or decoder was taken as the source's input.
 - `stream` plays every frame of a file, pipe, or other non-live source at its own rate, starting when its first frame arrives. Only 3 of 300 frames of a non-live `videotestsrc` reached the effect, and a pipe from `ffmpeg -re` lost most of its frames to a synced sink. Cameras and other live sources still drop stale frames when the effect falls behind.
 - `--video-sink` and `--audio-sink` may start with caps, such as `video/x-raw,format=I420 ! x264enc ! ...`, so `x264enc` can encode 4:2:0 H.264 that most players decode instead of High 4:4:4 from the effect's RGB output.

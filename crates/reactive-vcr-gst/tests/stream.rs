@@ -239,3 +239,34 @@ fn sinks_can_start_with_caps() {
     assert!(summary.frames > 0);
     assert_eq!(bytes as u64, summary.frames * (160 * 120 * 3 / 2));
 }
+
+#[test]
+fn encoded_output_drains_after_video_ends_with_live_audio() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = dir.path().join("complete.mkv");
+    let summary = stream_with(
+        "videotestsrc num-buffers=32 \
+         ! video/x-raw,width=160,height=120,framerate=30/1",
+        &format!(
+            "queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 \
+             ! identity sleep-time=50000 ! videoconvert ! video/x-raw,format=I420 \
+             ! x264enc tune=zerolatency speed-preset=ultrafast \
+             ! h264parse ! matroskamux ! filesink location={}",
+            output.display()
+        ),
+    )
+    .unwrap();
+    assert_eq!(summary.frames, 32);
+    let decoded = dir.path().join("decoded.rgb");
+    run(&format!(
+        "filesrc location={} ! matroskademux ! h264parse ! avdec_h264 max-threads=1 \
+         ! videoconvert ! video/x-raw,format=RGB ! filesink location={}",
+        output.display(),
+        decoded.display()
+    ));
+    assert_eq!(
+        std::fs::read(decoded).unwrap().len(),
+        32 * FRAME_BYTES,
+        "the encoder and muxer must drain every decoded frame"
+    );
+}

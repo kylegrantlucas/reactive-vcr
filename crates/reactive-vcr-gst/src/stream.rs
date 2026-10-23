@@ -321,6 +321,7 @@ fn event_loop(
     quiet: bool,
 ) -> Result<()> {
     let bus = pipeline.bus().expect("pipelines have a bus");
+    let mut draining = false;
     loop {
         if let Some(message) = bus.timed_pop(BUS_POLL) {
             match message.view() {
@@ -335,8 +336,12 @@ fn event_loop(
                     let Some(structure) = application.structure() else {
                         continue;
                     };
-                    if structure.name() == VIDEO_EOS_MESSAGE {
-                        return Ok(());
+                    if structure.name() == VIDEO_EOS_MESSAGE && !draining {
+                        // This message comes from the effect, before downstream encoders,
+                        // queues and muxers have drained. End live audio too, then wait for
+                        // the pipeline's EOS message from all sinks before setting Null.
+                        draining = true;
+                        pipeline.send_event(gst::event::Eos::new());
                     }
                     if structure.name() == KEY_MESSAGE {
                         let key = structure.get::<&str>("key").unwrap_or_default();
