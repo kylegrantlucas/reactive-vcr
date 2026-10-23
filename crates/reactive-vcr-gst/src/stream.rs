@@ -249,16 +249,15 @@ fn lateness(
     now.checked_sub(due).filter(|late| !late.is_zero())
 }
 
-/// `source ! tee`, with one branch analyzed as mono f32 at `SAMPLE_RATE` and one sent to the
-/// audio sink.
+/// Analyze mono f32 at `SAMPLE_RATE`, adding a tee and monitor branch only for an
+/// explicitly configured sink other than the default `fakesink`.
 fn build_audio(
     pipeline: &gst::Pipeline,
     o: &StreamOptions,
     live: &Arc<Mutex<LiveProgram>>,
 ) -> Result<()> {
-    let input = [source(&o.audio_source)?, make("tee")?];
-    pipeline.add_many(&input)?;
-    gst::Element::link_many(&input)?;
+    let input = source(&o.audio_source)?;
+    pipeline.add(&input)?;
 
     let caps = gst::Caps::builder("audio/x-raw")
         .field("format", "F32LE")
@@ -284,21 +283,30 @@ fn build_audio(
             .build(),
     );
     let analysis_branch = [
-        make("queue")?,
         make("audioconvert")?,
         make("audioresample")?,
         analysis.upcast(),
     ];
-    let monitor_branch = [
-        make("queue")?,
-        make("audioconvert")?,
-        make("audioresample")?,
-        sink(&o.audio_sink)?,
-    ];
-    for branch in [&analysis_branch, &monitor_branch] {
-        pipeline.add_many(branch)?;
-        gst::Element::link_many(branch)?;
-        input[1].link(&branch[0])?;
+    pipeline.add_many(&analysis_branch)?;
+    gst::Element::link_many(&analysis_branch)?;
+    if o.audio_sink == "fakesink" {
+        // The default fakesink and analysis sink are both unsynced. Keep source-driven
+        // pacing and the analysis caps without a second branch or a queue.
+        input.link(&analysis_branch[0])?;
+    } else {
+        let tee = make("tee")?;
+        let analysis_queue = make("queue")?;
+        let monitor_branch = [
+            make("queue")?,
+            make("audioconvert")?,
+            make("audioresample")?,
+            sink(&o.audio_sink)?,
+        ];
+        pipeline.add_many([&tee, &analysis_queue])?;
+        pipeline.add_many(&monitor_branch)?;
+        gst::Element::link_many([&input, &tee, &analysis_queue, &analysis_branch[0]])?;
+        gst::Element::link_many(&monitor_branch)?;
+        tee.link(&monitor_branch[0])?;
     }
     Ok(())
 }

@@ -17,6 +17,7 @@ All notable changes to reactive-vcr appear here. This project follows [Semantic 
 
 - The showcase site lives at https://klr.dev/reactive-vcr/: its canonical and social-card URLs, the README links, and the crate homepage point there, and the footer credits Kyle Lucas-Rodriguez.
 - Per-frame settings skip composite, luma, and chroma noise passes when their intensity is exactly zero, without cloning extra settings or changing nonzero noise seeds. Mapping settings and reported modulation values are preserved.
+- `stream` omits the unused audio monitor branch, tee, and queues when `--audio-sink` is exactly the default `fakesink`. Audio analysis keeps its existing caps and source-driven pacing; explicitly configured audio sinks retain their monitor branch.
 
 ### Fixed
 

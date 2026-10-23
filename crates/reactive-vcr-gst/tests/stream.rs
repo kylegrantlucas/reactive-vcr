@@ -75,6 +75,43 @@ fn live_audio_drives_the_effect() {
 }
 
 #[test]
+fn explicit_audio_sink_receives_the_driving_audio() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = dir.path().join("monitor.f32");
+    let summary = stream(&StreamOptions {
+        map: example("basic.toml"),
+        video_source: "videotestsrc num-buffers=30 \
+                       ! video/x-raw,width=160,height=120,framerate=30/1"
+            .into(),
+        audio_source: "audiotestsrc wave=sine freq=110 volume=1.0 \
+                       samplesperbuffer=480 num-buffers=10 \
+                       ! audio/x-raw,format=F32LE,channels=1,rate=48000"
+            .into(),
+        lines: 120,
+        video_sink: "fakesink sync=true".into(),
+        audio_sink: format!(
+            "audio/x-raw,format=F32LE,channels=1,rate=48000 ! filesink location={}",
+            output.display()
+        ),
+        gate_db: None,
+        telemetry: None,
+        quiet: true,
+    })
+    .unwrap();
+    assert_eq!(summary.frames, 30);
+    let bytes = std::fs::read(output).unwrap();
+    assert_eq!(bytes.len(), 480 * 10 * 4);
+    assert!(
+        bytes
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|sample| f32::from_le_bytes(*sample).abs() > 0.5),
+        "the explicit monitor sink should receive the tone"
+    );
+}
+
+#[test]
 fn file_sources_with_demuxers_and_decoders_stream() {
     let dir = tempfile::tempdir().unwrap();
     // 30 frames with an audio track, so a decoder also offers a stream the video can't take.
