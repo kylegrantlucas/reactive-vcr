@@ -23,7 +23,7 @@ gstreamer-base = "0.25.4"
 gstreamer-pbutils = "0.25.4"
 gstreamer-video = "0.25.4"
 ntsc-rs = { git = "https://github.com/ntsc-rs/ntsc-rs", rev = "88f2df9a27863097eaffd8d1fe0080a174dfd4a5", version = "0.1.2", features = ["rayon"] }
-parking_lot = "0.12.5"
+parking_lot = "0.13.0"
 realfft = "3.5.0"
 rfd = "0.17"
 serde = { version = "1.0.229", features = ["derive"] }
